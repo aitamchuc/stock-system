@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Bảng xếp hạng cổ phiếu{% endblock %}
+{% block content %}
+<div class="panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+    <div><strong>Bảng xếp hạng</strong> <span class="muted">· cập nhật: {{ as_of or "chưa có dữ liệu" }} · {{ items|length }} mã</span></div>
+    <div class="filters">
+      <input id="q" placeholder="Tìm mã..." oninput="filterRows()">
+      <select id="sig" onchange="filterRows()">
+        <option value="">Tất cả tín hiệu</option>
+        {% for k,v in signal_labels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <table style="margin-top:12px;">
+    <thead><tr>
+      <th>#</th><th>Mã</th><th>Ngành</th><th>Giá</th>
+      <th>Điểm tổng</th><th>Tín hiệu</th><th>KT</th><th>Dòng tiền</th><th>Rủi ro</th>
+    </tr></thead>
+    <tbody id="tbody">
+      {% for it in items %}
+      <tr data-symbol="{{ it.symbol }}" data-signal="{{ it.signal }}">
+        <td class="muted">{{ loop.index }}</td>
+        <td><a href="/stock/{{ it.symbol }}"><strong>{{ it.symbol }}</strong></a><br>
+            <span class="muted" style="font-size:11px;">{{ it.exchange }}</span></td>
+        <td class="muted">{{ it.industry or "—" }}</td>
+        <td><span class="px" data-sym="{{ it.symbol }}">{{ "{:,.0f}".format(it.close) if it.close else "—" }}</span>
+            <span class="chg muted" data-sym="{{ it.symbol }}" style="font-size:11px;"></span></td>
+        <td><span class="score">{{ "%.0f"|format(it.final_score) }}</span>
+            <div class="bar"><span style="width:{{ it.final_score }}%"></span></div></td>
+        <td><span class="badge {{ it.signal }}">{{ it.signal_label }}</span></td>
+        <td>—</td><td>—</td><td>—</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not items %}
+  <p class="muted" style="margin-top:16px;">Chưa có dữ liệu. Chạy pipeline trước:
+     <code>python -m app.pipeline</code></p>
+  {% endif %}
+</div>
+<script>
+function filterRows(){
+  const q=document.getElementById('q').value.toUpperCase();
+  const sig=document.getElementById('sig').value;
+  document.querySelectorAll('#tbody tr').forEach(tr=>{
+    const okQ=tr.dataset.symbol.includes(q);
+    const okS=!sig||tr.dataset.signal===sig;
+    tr.style.display=(okQ&&okS)?'':'none';
+  });
+}
+
+// Nạp giá thị trường trực tiếp và cập nhật bảng
+async function loadLive(){
+  try {
+    const r = await fetch('/api/live');
+    const j = await r.json();
+    const p = j.prices || {};
+    document.querySelectorAll('.px').forEach(el=>{
+      const d = p[el.dataset.sym];
+      if(!d) return;
+      el.textContent = Number(d.price).toLocaleString('vi-VN');
+      const chg = document.querySelector('.chg[data-sym="'+el.dataset.sym+'"]');
+      if(chg && d.change_pct!=null){
+        chg.textContent = (d.change_pct>0?'+':'')+d.change_pct.toFixed(2)+'%';
+        chg.style.color = d.change_pct>0?'#4ade80':d.change_pct<0?'#f87171':'#9aa7bd';
+      }
+    });
+  } catch(e){ /* im lặng nếu không có nguồn giá trực tiếp */ }
+}
+loadLive();
+setInterval(loadLive, 30000);  // làm mới mỗi 30s
+</script>
+{% endblock %}

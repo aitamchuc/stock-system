@@ -1,0 +1,71 @@
+name: VN Stock — chạy tự động
+
+# Lịch dùng giờ UTC (GitHub cron luôn UTC). Quy đổi giờ VN (UTC+7):
+#   09:00 VN = 02:00 UTC · 14:00 VN = 07:00 UTC · 17:00 VN = 10:00 UTC · 17:30 VN = 10:30 UTC
+on:
+  schedule:
+    - cron: "0 2 * * 1-5"    # 09:00 VN — quét tin
+    - cron: "0 7 * * 1-5"    # 14:00 VN — quét tin
+    - cron: "0 10 * * 1-5"   # 17:00 VN — chấm điểm + chọn cổ phiếu
+    - cron: "30 10 * * 1-5"  # 17:30 VN — quét penny
+  workflow_dispatch:          # cho phép bấm chạy tay trên GitHub
+    inputs:
+      task:
+        description: "Chạy tay tác vụ nào"
+        default: "pipeline"
+        type: choice
+        options: [pipeline, news, penny]
+
+concurrency:                  # không chạy chồng nếu lần trước chưa xong
+  group: vn-stock
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Ho_Chi_Minh
+      DATA_SOURCE: vnstock
+      OPENAI_MODEL: gpt-4o-mini
+      VNSTOCK_WATCHLIST: "ACB,BCM,BID,BVH,CTG,FPT,GAS,GVR,HDB,HPG,MBB,MSN,MWG,PLX,POW,SAB,SHB,SSB,SSI,STB,TCB,TPB,VCB,VHM,VIB,VIC,VJC,VNM,VPB,VRE"
+      # Bí mật — đặt trong GitHub: Settings → Secrets and variables → Actions
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DASHBOARD_BASE_URL: ${{ secrets.DASHBOARD_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Cài thư viện
+        run: pip install -r requirements.txt
+
+      - name: Xác định tác vụ theo lịch (hoặc chạy tay)
+        id: t
+        run: |
+          SCHED="${{ github.event.schedule }}"
+          MANUAL="${{ github.event.inputs.task }}"
+          if [ -n "$SCHED" ]; then
+            case "$SCHED" in
+              "0 2 * * 1-5"|"0 7 * * 1-5") MOD=app.news_scan ;;
+              "0 10 * * 1-5") MOD=app.pipeline ;;
+              "30 10 * * 1-5") MOD=app.penny ;;
+            esac
+          else
+            case "$MANUAL" in
+              news) MOD=app.news_scan ;;
+              penny) MOD=app.penny ;;
+              *) MOD=app.pipeline ;;
+            esac
+          fi
+          echo "mod=$MOD" >> "$GITHUB_OUTPUT"
+          echo "Sẽ chạy: python -m $MOD"
+
+      - name: Chạy
+        run: python -m ${{ steps.t.outputs.mod }}

@@ -1,0 +1,61 @@
+# Deploy 24/7 trên VPS/cloud: `docker compose up -d --build`
+# Gồm: db (Postgres/TimescaleDB) · redis · api (dashboard) · worker + beat (chạy lịch tự động).
+# db/redis KHÔNG mở ra internet (chỉ dùng nội bộ). Chỉ api cổng 8000 ra ngoài.
+
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stock
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stock}
+      POSTGRES_DB: stock
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stock"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://stock:${POSTGRES_PASSWORD:-stock}@db:5432/stock
+      REDIS_URL: redis://redis:6379/0
+    ports: ["8000:8000"]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: celery -A app.celery_app.celery worker --loglevel=info --concurrency=2
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://stock:${POSTGRES_PASSWORD:-stock}@db:5432/stock
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  beat:
+    build: .
+    restart: unless-stopped
+    command: celery -A app.celery_app.celery beat --loglevel=info
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://stock:${POSTGRES_PASSWORD:-stock}@db:5432/stock
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+
+volumes:
+  pgdata:

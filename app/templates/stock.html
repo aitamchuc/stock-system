@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}{{ d.symbol }} · Chi tiết{% endblock %}
+{% block content %}
+<p><a href="/">← Bảng xếp hạng</a></p>
+<div class="panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+    <div>
+      <h2 style="margin:0;">{{ d.symbol }}
+        {% if d.score %}<span class="badge {{ d.score.signal }}">{{ d.score.signal_label }}</span>{% endif %}
+      </h2>
+      <div class="muted">{{ d.company_name }} · {{ d.exchange }} · {{ d.industry }}</div>
+      {% if d.live %}
+      {% set chg = d.live.change_pct %}
+      <div style="margin-top:6px;">
+        <span class="muted">Giá trực tiếp:</span>
+        <span style="font-size:20px;font-weight:700;">{{ "{:,.0f}".format(d.live.price) }}</span>
+        {% if chg is not none %}
+        <span style="font-weight:600;color:{{ '#4ade80' if chg>0 else '#f87171' if chg<0 else '#9aa7bd' }};">
+          {{ "%+.2f%%"|format(chg) }}</span>
+        {% endif %}
+        <span class="muted" style="font-size:11px;">(TC {{ "{:,.0f}".format(d.live.ref_price) }})</span>
+      </div>
+      {% endif %}
+    </div>
+    {% if d.score %}<div style="text-align:right;">
+      <div class="muted">Điểm tổng hợp</div>
+      <div style="font-size:32px;font-weight:800;">{{ "%.0f"|format(d.score.final_score) }}<span class="muted" style="font-size:16px;">/100</span></div>
+    </div>{% endif %}
+  </div>
+</div>
+
+{% if d.recommendation %}
+{% set r = d.recommendation %}
+<div class="panel" style="border-color:#2e7d5b;">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    <strong>🎯 Khuyến nghị giá (AI agent)</strong>
+    <span class="muted">BCTC kỳ {{ r.report_period or "—" }} · {{ "AI/LLM" if r.method=="llm" else "Quy tắc" }} · độ tin cậy: {{ r.conviction }}</span>
+  </div>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin-top:10px;">
+    <div class="metric"><div class="k">Vùng MUA</div><div class="v" style="color:#4ade80;font-size:16px;">{{ "{:,.0f}".format(r.buy_low) }}–{{ "{:,.0f}".format(r.buy_high) }}</div></div>
+    <div class="metric"><div class="k">Giá BÁN (chốt lời)</div><div class="v" style="color:#60a5fa;font-size:16px;">{{ "{:,.0f}".format(r.target_price) }}</div>{% if r.expected_return %}<div class="muted">{{ "%+.0f%%"|format(r.expected_return*100) }}</div>{% endif %}</div>
+    <div class="metric"><div class="k">Cắt lỗ</div><div class="v" style="color:#f87171;font-size:16px;">{{ "{:,.0f}".format(r.stop_loss) }}</div></div>
+    <div class="metric"><div class="k">R:R</div><div class="v" style="font-size:16px;">{{ "%.1f"|format(r.risk_reward) if r.risk_reward else "—" }}</div>{% if r.fair_value %}<div class="muted">GHL {{ "{:,.0f}".format(r.fair_value) }}</div>{% endif %}</div>
+  </div>
+  <p style="margin-top:10px;">🧠 {{ r.thesis }}</p>
+  <p class="muted" style="font-size:12px;">⚠️ Mức giá chỉ tham khảo, KHÔNG phải khuyến nghị đầu tư và không cam kết lợi nhuận.</p>
+</div>
+{% endif %}
+
+{% if d.score %}
+<div class="panel">
+  <strong>Điểm thành phần</strong>
+  <div class="grid" style="margin-top:10px;">
+    {% for k,v in d.score.parts.items() %}
+    <div class="metric"><div class="k">{{ k }}</div><div class="v">{{ "%.0f"|format(v) }}</div>
+      <div class="bar"><span style="width:{{ v }}%"></span></div></div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <strong>🧠 Luận điểm &amp; rủi ro</strong>
+  <p style="margin-top:8px;">{{ d.score.rationale.why }}</p>
+  <div class="grid" style="grid-template-columns:1fr 1fr;">
+    <div>
+      <div class="muted">Dữ liệu hỗ trợ</div>
+      <ul>
+        {% for cat, arr in d.score.rationale.supporting_data.items() %}
+          {% for r in arr %}<li>{{ r }}</li>{% endfor %}
+        {% endfor %}
+      </ul>
+    </div>
+    <div>
+      <div class="muted" style="color:#fbbf24;">Rủi ro chính</div>
+      <ul>{% for r in d.score.rationale.main_risks %}<li>{{ r }}</li>{% endfor %}</ul>
+      <div class="muted">Điều kiện làm tín hiệu vô hiệu</div>
+      <ul>{% for r in d.score.rationale.invalidation %}<li>{{ r }}</li>{% endfor %}</ul>
+      <p class="muted">Hỗ trợ: <strong>{{ "{:,.0f}".format(d.score.rationale.support) if d.score.rationale.support else "—" }}</strong>
+         · Kháng cự: <strong>{{ "{:,.0f}".format(d.score.rationale.resistance) if d.score.rationale.resistance else "—" }}</strong></p>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="panel">
+  <strong>Biểu đồ giá (120 phiên gần nhất)</strong>
+  <canvas id="chart" height="120"></canvas>
+</div>
+
+<div class="panel">
+  <strong>Báo cáo tài chính</strong>
+  <table style="margin-top:8px;">
+    <thead><tr><th>Kỳ</th><th>Doanh thu</th><th>LNST</th><th>ROE</th><th>Biên ròng</th><th>P/E</th><th>P/B</th></tr></thead>
+    <tbody>
+      {% for f in d.financials %}
+      <tr><td>{{ f.period }}</td>
+        <td>{{ "{:,.0f}".format(f.revenue) if f.revenue else "—" }}</td>
+        <td>{{ "{:,.0f}".format(f.net_income) if f.net_income else "—" }}</td>
+        <td>{{ "%.1f%%"|format(f.roe*100) if f.roe else "—" }}</td>
+        <td>{{ "%.1f%%"|format(f.net_margin*100) if f.net_margin else "—" }}</td>
+        <td>{{ "%.1f"|format(f.pe) if f.pe else "—" }}</td>
+        <td>{{ "%.1f"|format(f.pb) if f.pb else "—" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <strong>Tin tức &amp; sự kiện gần đây</strong>
+  <ul style="margin-top:8px;">
+    {% for n in d.news %}
+    <li>{% if n.sentiment and n.sentiment>0.2 %}🟢{% elif n.sentiment and n.sentiment<-0.2 %}🔴{% else %}⚪{% endif %}
+        <a href="{{ n.url }}" target="_blank">{{ n.title }}</a>
+        <span class="muted">· {{ n.event_type }}</span></li>
+    {% else %}<li class="muted">Không có tin gần đây</li>{% endfor %}
+  </ul>
+</div>
+
+<script>
+const prices = {{ d.prices|tojson }};
+const c = document.getElementById('chart'); const ctx = c.getContext('2d');
+const W = c.width = c.clientWidth, H = c.height;
+if (prices.length) {
+  const closes = prices.map(p=>p.close);
+  const min=Math.min(...closes), max=Math.max(...closes), pad=10;
+  ctx.strokeStyle='#22c55e'; ctx.lineWidth=1.5; ctx.beginPath();
+  prices.forEach((p,i)=>{
+    const x = pad + i*(W-2*pad)/(prices.length-1);
+    const y = H-pad - (p.close-min)/(max-min+1e-9)*(H-2*pad);
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+  });
+  ctx.stroke();
+}
+</script>
+{% endblock %}

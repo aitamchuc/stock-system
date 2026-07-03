@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}VN Stock System{% endblock %}</title>
+  <style>
+    :root {
+      --bg:#0f1420; --panel:#171e2e; --line:#26304a; --text:#e6ebf5; --muted:#8b97ad;
+      --green:#22c55e; --lime:#84cc16; --amber:#f59e0b; --red:#ef4444; --blue:#3b82f6;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text);
+           font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif; font-size:14px; }
+    a { color:var(--blue); text-decoration:none; }
+    header { padding:16px 24px; border-bottom:1px solid var(--line);
+             display:flex; justify-content:space-between; align-items:center; }
+    header h1 { font-size:18px; margin:0; }
+    .muted { color:var(--muted); }
+    .wrap { padding:20px 24px; max-width:1200px; margin:0 auto; }
+    .disclaimer { background:#2a1f12; border:1px solid #5a3d1a; color:#f5c877;
+                  padding:10px 14px; border-radius:8px; margin-bottom:16px; font-size:12.5px; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.03em; }
+    tr:hover td { background:#1b2334; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+             padding:16px; margin-bottom:16px; }
+    .score { font-weight:700; }
+    .badge { padding:3px 9px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+    .very_positive{background:#0f3d24;color:#4ade80;} .positive{background:#14351f;color:#84cc16;}
+    .watch{background:#1a2b40;color:#60a5fa;} .neutral{background:#242b3a;color:#9aa7bd;}
+    .risk_warning{background:#3a2410;color:#fbbf24;} .distribution{background:#3a1414;color:#f87171;}
+    .avoid{background:#3a1414;color:#f87171;}
+    .bar { height:6px; background:#26304a; border-radius:999px; overflow:hidden; min-width:60px; }
+    .bar > span { display:block; height:100%; background:linear-gradient(90deg,#3b82f6,#22c55e); }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+    .metric { background:#12192a; border:1px solid var(--line); border-radius:10px; padding:12px; }
+    .metric .k { color:var(--muted); font-size:11px; text-transform:uppercase; }
+    .metric .v { font-size:20px; font-weight:700; margin-top:4px; }
+    ul { margin:6px 0; padding-left:18px; }
+    li { margin:3px 0; }
+    .filters input, .filters select { background:#12192a; border:1px solid var(--line);
+      color:var(--text); padding:7px 10px; border-radius:8px; margin-right:8px; }
+    canvas { width:100%; max-width:100%; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📈 VN Stock Ranking &amp; Alert System</h1>
+    <span class="muted">Dữ liệu tham khảo · không phải khuyến nghị đầu tư</span>
+  </header>
+  <div class="wrap">
+    <div class="disclaimer">⚠️ {% block disclaimer %}Thông tin chỉ mang tính tham khảo, KHÔNG phải khuyến nghị đầu tư và không cam kết lợi nhuận.{% endblock %}</div>
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

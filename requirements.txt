@@ -1,0 +1,37 @@
+# Dùng ràng buộc tối thiểu để pip chọn wheel tương thích phiên bản Python của bạn.
+# Muốn khóa cứng cho production, chạy: pip freeze > requirements.lock.txt
+
+# --- Core backend ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.8
+pydantic-settings>=2.4
+SQLAlchemy>=2.0.30
+Jinja2>=3.1
+
+# --- Data / analysis ---
+pandas>=2.2
+numpy>=1.26
+# pandas-ta   # (tùy chọn) ta_engine đã tự tính indicator nên không bắt buộc
+
+# --- Jobs / scheduling (production) ---
+celery>=5.4
+redis>=5.0
+
+# --- Resilience / http / feeds ---
+tenacity>=9.0
+httpx>=0.27
+feedparser>=6.0
+
+# --- DB driver Postgres (cần khi deploy Docker/production; SQLite là builtin cho local) ---
+psycopg2-binary>=2.9
+
+# --- Data source dữ liệu VN thật (đã bật) ---
+vnstock>=4.0        # lưu ý: sẽ ghim pandas<3 (2.3.x) và numpy<2.3 (2.2.x)
+
+# --- LLM (chọn 1; agent khuyến nghị + tóm tắt tin) ---
+openai>=1.40           # ChatGPT (đang dùng)
+# anthropic>=0.39      # Claude (tùy chọn)
+
+# --- Test ---
+pytest>=8.0
