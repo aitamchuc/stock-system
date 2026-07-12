@@ -5,6 +5,7 @@ name: VN Stock — chạy tự động
 on:
   schedule:
     - cron: "0 2 * * 1-5"    # 09:00 VN — quét tin
+    - cron: "30 2 * * 1-5"   # 09:30 VN — quét NW toàn thị trường (tin về ~10:00)
     - cron: "0 7 * * 1-5"    # 14:00 VN — quét tin
     - cron: "0 10 * * 1-5"   # 17:00 VN — chấm điểm + chọn cổ phiếu
     - cron: "30 10 * * 1-5"  # 17:30 VN — quét penny
@@ -14,7 +15,7 @@ on:
         description: "Chạy tay tác vụ nào"
         default: "pipeline"
         type: choice
-        options: [pipeline, news, penny]
+        options: [pipeline, news, penny, nw]
 
 concurrency:                  # không chạy chồng nếu lần trước chưa xong
   group: vn-stock
@@ -23,7 +24,7 @@ concurrency:                  # không chạy chồng nếu lần trước chưa
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60      # nw_scan quét ~250 mã, bị throttle 18 req/phút
     env:
       TZ: Asia/Ho_Chi_Minh
       DATA_SOURCE: vnstock
@@ -54,6 +55,7 @@ jobs:
           if [ -n "$SCHED" ]; then
             case "$SCHED" in
               "0 2 * * 1-5"|"0 7 * * 1-5") MOD=app.news_scan ;;
+              "30 2 * * 1-5") MOD=app.nw_scan ;;
               "0 10 * * 1-5") MOD=app.pipeline ;;
               "30 10 * * 1-5") MOD=app.penny ;;
             esac
@@ -61,6 +63,7 @@ jobs:
             case "$MANUAL" in
               news) MOD=app.news_scan ;;
               penny) MOD=app.penny ;;
+              nw) MOD=app.nw_scan ;;
               *) MOD=app.pipeline ;;
             esac
           fi

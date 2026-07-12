@@ -43,6 +43,18 @@ class Settings(BaseSettings):
     curate_min_score: float = 58.0         # ngưỡng điểm tối thiểu để lọt vòng xét
     push_individual_alerts: bool = False   # True = vẫn gửi cảnh báo lẻ như cũ (mặc định tắt)
 
+    # Bộ quét tín hiệu MUA theo Nadaraya-Watson trên toàn thị trường (chạy ~9h30, gửi ~10h)
+    nw_min_liquidity: float = 5_000_000_000.0   # GTGD tối thiểu/phiên (~5 tỷ) — mã đủ thanh khoản
+    nw_min_price: float = 3_000.0               # loại cổ phiếu thị giá quá thấp
+    nw_scan_max: int = 250                      # số mã phân tích sâu (giới hạn rate-limit)
+    nw_top_n: int = 10                          # số mã gửi Telegram
+    nw_require_uptrend: bool = True             # lọc: giá > MA200 (xu hướng tăng)
+    nw_require_inflow: bool = True              # lọc: CMF20 > 0 (dòng tiền đang vào)
+    # Bắt buộc PHẢI có tín hiệu BUY của NW mới lọt danh sách?
+    # Mặc định TẮT: backtest cho thấy gate theo NW BUY làm KÉM ĐI có ý nghĩa thống kê
+    # (alpha −2.9%, t=−2.4 ở 20 phiên khi kết hợp với lọc chất lượng). NW chỉ dùng làm bối cảnh.
+    nw_require_buy_signal: bool = False
+
     # Bộ quét cổ phiếu penny (đầu cơ, rủi ro rất cao)
     penny_price_max: float = 10_000.0      # giá <= ngưỡng này coi là penny (VND)
     penny_min_liquidity: float = 1_000_000_000.0  # GTGD tối thiểu/phiên (~1 tỷ) để còn giao dịch được

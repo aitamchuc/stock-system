@@ -22,9 +22,17 @@ from app.alerting import rules
 from app.bot import telegram
 from app.config import settings
 from app.db import init_db, session_scope
-from app.engines import fundamental, moneyflow, news_nlp, scoring, ta_engine
+from app.engines import (
+    fundamental,
+    moneyflow,
+    news_nlp,
+    nw_envelope,
+    scoring,
+    sfi,
+    ta_engine,
+)
 from app.ingestion import ingest
-from app.models import OHLCV
+from app.models import DailyScore, OHLCV
 from app.quality.checks import run_quality_checks
 from app import repo
 
@@ -52,8 +60,30 @@ def score_symbol(session, symbol: str, ts: date) -> bool:
         ta=ta, fa=fa, mf=mf, news=news,
         liquidity_value=liquidity, weights=settings.weights,
     )
+    # Tín hiệu THỜI ĐIỂM mua/bán (Nadaraya-Watson Envelope, non-repaint)
+    result["rationale"]["nw"] = nw_envelope.latest_signal(ohlcv)
+    # SFI: dùng làm CẢNH BÁO quá nóng + mức cắt lỗ động (KHÔNG dùng làm tín hiệu mua — backtest
+    # cho thấy quan hệ nghịch đảo: càng nhiều chỉ báo đồng thuận tăng, lợi nhuận tương lai càng kém)
+    result["rationale"]["sfi"] = sfi.latest(ohlcv)
     repo.upsert_daily_score(session, symbol, ts, result)
     return True
+
+
+def collect_nw_signals(session, ts: date) -> tuple[list[dict], list[dict]]:
+    """Gom tín hiệu BUY/SELL của Nadaraya-Watson từ daily_scores của phiên."""
+    rows = session.execute(select(DailyScore).where(DailyScore.ts == ts)).scalars().all()
+    buys, sells = [], []
+    for sc in rows:
+        nw = (sc.rationale or {}).get("nw") or {}
+        if not nw.get("signal") or nw.get("price") is None:
+            continue
+        item = {
+            "symbol": sc.symbol, "price": nw["price"],
+            "lower": nw.get("lower"), "upper": nw.get("upper"),
+            "position": nw.get("position"),
+        }
+        (buys if nw["signal"] == "BUY" else sells).append(item)
+    return buys, sells
 
 
 def run_daily(ingest_data: bool = True, trade_date: date | None = None) -> dict:
@@ -116,11 +146,18 @@ def run_daily(ingest_data: bool = True, trade_date: date | None = None) -> dict:
         recs = run_recommendations(session, trade_date, within_days=3, send=False)
     summary["recommendations"] = len(recs)
 
-    # 7. AI CHỌN LỌC cổ phiếu NÊN ĐẦU TƯ → đây là nội dung DUY NHẤT gửi Telegram
+    # 7. AI CHỌN LỌC cổ phiếu NÊN ĐẦU TƯ → gửi Telegram
     from app.curate import curate
     with session_scope() as session:
         picks = curate(session, trade_date, send=True)
     summary["picks"] = len(picks)
+
+    # 8. Tín hiệu THỜI ĐIỂM mua/bán (Nadaraya-Watson) — chỉ gửi khi có tín hiệu
+    with session_scope() as session:
+        buys, sells = collect_nw_signals(session, trade_date)
+    if buys or sells:
+        telegram.send_message(telegram.format_nw_signals(buys, sells, str(trade_date)))
+    summary["nw_buy"], summary["nw_sell"] = len(buys), len(sells)
     summary["trade_date"] = str(trade_date)
 
     print(f"[pipeline] Hoàn tất {trade_date}: {summary}")

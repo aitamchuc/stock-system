@@ -282,6 +282,132 @@ tham chiếu — chính xác hơn giá đóng cửa EOD trong phiên.
 python scripts/check_live.py     # in giá trực tiếp watchlist
 ```
 
+## ⏱ Tín hiệu THỜI ĐIỂM mua/bán — Nadaraya-Watson Envelope
+
+Port từ Pine Script *"Nadaraya-Watson Envelope [LuxAlgo]"* — **© LuxAlgo, CC BY-NC-SA 4.0**
+(phi thương mại, ghi công, chia sẻ tương tự). Cài đặt: [engines/nw_envelope.py](app/engines/nw_envelope.py).
+
+Dùng chế độ **non-repaint (endpoint)** — hồi quy nhân Gaussian *một phía* nên **không nhìn trước
+tương lai** (chế độ repaint của bản gốc chỉ để vẽ, không dùng ra tín hiệu được).
+
+```
+out[t] = Σ close[t-i]·exp(-i²/2h²) / Σ trọng số      (h=8)
+mae    = SMA(|close - out|, 499) × 3
+upper = out + mae ; lower = out - mae
+
+BUY  ⟺ lower bẻ lên   (lower[t] > lower[t-1] ≤ lower[t-2])
+SELL ⟺ upper bẻ xuống (upper[t] < upper[t-1] ≥ upper[t-2])
+```
+
+**Tích hợp:** tính mỗi phiên cho toàn watchlist → lưu vào `daily_scores.rationale.nw` → (1) đưa vào
+ngữ cảnh cho **AI chọn lọc** (nền tảng tốt nhưng đang SELL/sát dải trên ⇒ AI chuyển sang "Theo dõi"),
+(2) gửi bản tin Telegram **⏱ TÍN HIỆU THỜI ĐIỂM** khi có BUY/SELL, (3) hiện trong mỗi mã được chọn.
+Lịch sử giá đã nâng lên 760 ngày (~500 phiên) để đủ cửa sổ 499 như bản gốc.
+
+### ⚠️ Backtest trung thực (VN30, 412 tín hiệu BUY / 412 SELL)
+| Kỳ hạn | BUY win / TB | Nền (mọi phiên) win / TB | Kết luận |
+|---|---|---|---|
+| 5 phiên | 47.4% / **+0.49%** | 46.3% / +0.16% | nhỉnh hơn nền chút ít |
+| 20 phiên | 43.6% / +0.52% | 46.9% / **+1.30%** | **kém hơn nền** |
+| 60 phiên | 38.8% / +2.53% | 42.8% / **+3.21%** | **kém hơn nền** |
+
+Tín hiệu SELL còn cho forward return **dương** ở 20/60 phiên → **không dự báo được giảm giá**.
+
+👉 **Vì vậy:** dùng NW như **công cụ canh thời điểm ngắn hạn & bối cảnh** (giá đang ở đâu trong dải,
+vừa bẻ đáy/đỉnh chưa), **KHÔNG giao dịch độc lập theo nó**. Kiểm chứng lại: `python scripts/backtest_nw.py`.
+
+### 📡 Quét toàn thị trường → Top 10 tín hiệu MUA (09:30, tin về ~10:00)
+```bash
+python -m app.nw_scan                              # quét thật + gửi Telegram
+python -m app.nw_scan --no-telegram --max 40       # chạy thử
+python -m app.nw_scan --symbols FPT,HPG --no-telegram   # bỏ qua sàng lọc, chạy offline từ DB
+```
+- **Tầng 1** (~26 lệnh gọi): `price_board` toàn bộ ~1500 mã → giữ mã có **thanh khoản ≥ 5 tỷ/phiên**
+  và **giá ≥ 3.000đ**, lấy tối đa `NW_SCAN_MAX` (250) mã thanh khoản nhất.
+  *(Quét đủ 1527 mã sẽ mất ~85 phút vì rate-limit 18 req/phút → lọc trước là bắt buộc.)*
+- **Tầng 2**: tính NW trên **nến đã đóng** (bỏ nến hôm nay nếu phiên đang chạy → tín hiệu không đổi
+  trong ngày). Ưu tiên đọc DB, chỉ gọi API khi thiếu/cũ.
+- **Lọc chất lượng**: chỉ giữ BUY khi **giá > MA200** — bộ lọc *duy nhất* cho alpha không âm.
+  *(Bộ lọc "giá sát dải dưới" cho **0 tín hiệu**: về cấu trúc, BUY của NW không bao giờ xuất hiện
+  khi giá ở nửa dưới dải.)*
+- **Xếp hạng** (minh bạch, **không phải xác suất thắng**): 40% thanh khoản + 30% vị trí thấp trong
+  dải + 30% độ mạnh xu hướng trên MA200. Lưu bảng `nw_picks` để sau này đo hiệu quả thực tế.
+
+### 🔬 Backtest tổ hợp: NW + điểm cơ bản + dòng tiền
+
+`python -m scripts.backtest_robust` — kiểm định **từng yếu tố**, in cả 2 bảng để lộ mức thổi phồng.
+
+> **Bẫy thống kê quan trọng:** forward return h phiên của các nến liền kề **chồng lấn ~100%** →
+> mẫu tương quan chuỗi, t-stat bị thổi phồng nhiều lần. Phải lấy mẫu **cách nhau h phiên** mới
+> có quan sát độc lập.
+
+**Kết quả TOÀN THỊ TRƯỜNG** (~1.480 mã giá + **1.054 mã BCTC**; mẫu độc lập 46.000+ quan sát):
+
+| Yếu tố | N độc lập (5/20/60) | t-stat (độc lập) | Kết luận |
+|---|---|---|---|
+| Giá > MA200 | 46k / 11k / 3.6k | **−18.6 / −7.9 / −4.2** | 🔴 CÓ HẠI (rất mạnh) |
+| Tín hiệu NW BUY | 6.1k / 1.4k / 428 | **−12.0** / −1.5 / +1.1 | 🔴 CÓ HẠI ngắn hạn |
+| Dòng tiền CMF20 > 0 | 48k / 12k / 3.6k | **−3.5** / −0.9 / −1.5 | 🔴 hại ngắn hạn |
+| **Điểm cơ bản ≥60** | **15k / 3.8k / 1.0k** | **+0.20 / −0.03 / +1.16** | ⚪ **nhiễu — không edge** |
+
+👉 **Kết luận dứt điểm: KHÔNG yếu tố nào — kỹ thuật lẫn cơ bản — dự báo được lợi nhuận 5–60 phiên.**
+Tệ hơn, tín hiệu MUA của Nadaraya-Watson và lọc "giá > MA200" cho lợi nhuận **ÂM có ý nghĩa thống kê
+rất mạnh** (t = −12 đến −18,6). Thị trường VN giai đoạn này thiên về **hồi quy về trung bình** —
+mua lúc cổ phiếu mạnh **thua** mua lúc yếu, tức **ngược** với điều NW cố làm.
+
+⚠️ **Nhưng đọc kỹ giới hạn của kết luận về CƠ BẢN:** yếu tố cơ bản được kỳ vọng phát huy trên
+**nhiều năm**, không phải 1–3 tháng. Kỳ hạn dài nhất test được ở đây là **60 phiên (~3 tháng)** —
+quá ngắn để nền tảng doanh nghiệp thể hiện. Thêm nữa, điểm cơ bản chỉ dựng từ **4 quý BCTC** (giới
+hạn gói community) với `publish_date` **ước lượng**. ⇒ Kết quả này **không chứng minh "đầu tư giá trị
+không hiệu quả"**; nó chỉ nói: *chỉ số cơ bản thô này không dự báo được biến động giá ngắn hạn.*
+
+⇒ **Hệ quả thiết kế:** không dùng các chỉ báo này làm tín hiệu MUA. Công cụ NW chỉ còn giá trị làm
+**màn hình lọc watchlist** (có gắn nhãn cảnh báo). Giá trị thật của hệ thống nằm ở phần **phòng thủ**:
+phát hiện red-flag BCTC, cảnh báo rủi ro, tổng hợp tin tức, và AI curation — chứ không phải "tín
+hiệu mua thần thánh".
+
+Chạy lại: `python -m scripts.backtest_robust` (chỉ đọc DB, không gọi API).
+
+> ⚠️ **Bài học vận hành:** đừng bao giờ chạy script với `DATA_SOURCE=demo` trên DB chứa dữ liệu thật —
+> DemoProvider từng ghi giá synthetic đè lên giá thật và làm sai lệch toàn bộ backtest.
+> [nw_scan.py](app/nw_scan.py) nay đã chốt an toàn: demo **không bao giờ** ghi đè dữ liệu đã có.
+
+## 🔥 SFI Multi-Strength — dùng làm **CẢNH BÁO QUÁ NÓNG**, không phải tín hiệu mua
+
+Port từ Pine "SFI MULTI-STRENGTH" ([engines/sfi.py](app/engines/sfi.py)): NW Baseline · Smart Trail
+(HMA+DWMA) · UT Bot (ATR trailing stop) · Kalman · **Oracle Consensus** (6 phiếu: EMA20, EMA20>EMA50,
+RSI>50, MACD, Supertrend, SAR). Đã test **không nhìn trước tương lai**.
+
+### 📊 Backtest toàn thị trường (1.483 mã, mẫu độc lập) — phát hiện quan trọng nhất
+
+**Điểm Oracle vs lợi nhuận 20 phiên tới — quan hệ NGHỊCH ĐẢO đơn điệu qua cả 7 mức:**
+
+| Điểm đồng thuận | N | Win | TB return | t-stat |
+|---|---|---|---|---|
+| **0** (mọi chỉ báo đều xấu) | 3.319 | 41.0% | **+2.87%** | **+7.46** |
+| 1 | 8.110 | 42.7% | +1.18% | +3.30 |
+| 2 | 5.633 | 42.7% | +0.58% | −0.18 |
+| 3 | 3.119 | 41.0% | +0.20% | −1.65 |
+| **4** (ngưỡng "MUA" của chỉ báo) | 4.395 | 35.1% | **−0.14%** | **−2.76** |
+| 5 | 6.045 | 35.6% | −0.08% | −3.05 |
+| **6** (mọi chỉ báo đều tốt) | 4.860 | 39.6% | −0.01% | **−2.29** |
+
+**Điểm vào lệnh (vừa bật tín hiệu) đều CÓ HẠI mạnh:** Oracle bật ≥4 → **−1.79%** sau 20 phiên
+(t=**−6.4**); cả 4 đường cùng bullish → **−2.41%** (t=**−6.5**); Kalman cắt lên → −2.24% (t=−6.7).
+
+👉 **Dùng đúng cách (theo bằng chứng):**
+- ✅ **Oracle ≥5 → CẢNH BÁO QUÁ NÓNG** ("kỹ thuật quá đồng thuận tăng — lịch sử cho thấy lợi nhuận
+  kỳ vọng thấp nhất"). Hiển thị trong bản tin Telegram + đưa vào ngữ cảnh AI chọn lọc.
+- ✅ **UT Bot → mức CẮT LỖ động** (đúng mục đích thiết kế). Đã thay mức cắt lỗ tùy ý cũ trong
+  [curate.py](app/curate.py) khi UT Bot nằm dưới giá và không quá xa (<25%).
+- ❌ **KHÔNG** dùng bất kỳ đường nào làm tín hiệu MUA.
+
+⚠️ **Cũng KHÔNG được lật ngược thành "mua khi điểm 0"** — đó là overfit vào một chế độ thị trường
+(2 năm). Win rate ở mức điểm 0 chỉ 41%; lợi nhuận đến từ vài cú hồi mạnh (đuôi phân phối), rất rủi ro
+trong thị trường gấu thật.
+
+Chạy lại: `python -m scripts.backtest_sfi`
+
 ## ✅ AI chọn lọc cổ phiếu NÊN ĐẦU TƯ (nội dung chính gửi Telegram)
 
 Thay vì gửi mọi cảnh báo lẻ, hệ thống để **AI agent chọn lọc** — chỉ giữ những mã thực sự đáng

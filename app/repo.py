@@ -22,6 +22,7 @@ from app.models import (
     MoneyFlow,
     News,
     NewsImpact,
+    NWPick,
     OHLCV,
     PennyPick,
     Recommendation,
@@ -179,6 +180,16 @@ def insert_news_impacts(session: Session, rows: list[dict]) -> int:
         return 0
     valid = {c.name for c in NewsImpact.__table__.columns}
     session.add_all([NewsImpact(**{k: v for k, v in r.items() if k in valid}) for r in rows])
+    return len(rows)
+
+
+def replace_nw_picks(session: Session, ts: date, rows: list[dict]) -> int:
+    session.execute(delete(NWPick).where(NWPick.ts == ts))
+    valid = {c.name for c in NWPick.__table__.columns}
+    # rows có thể đã chứa 'ts' → gộp rồi ghi đè bằng ts truyền vào (tránh trùng keyword)
+    session.add_all([
+        NWPick(**{**{k: v for k, v in r.items() if k in valid}, "ts": ts}) for r in rows
+    ])
     return len(rows)
 
 

@@ -69,9 +69,37 @@ def _candidates(session, ts: date) -> list[dict]:
             "pb": fin.pb if fin else None, "why": r.get("why", ""),
             "main_risks": (r.get("main_risks") or [])[:3],
             "support": r.get("support"), "resistance": r.get("resistance"),
+            "nw": r.get("nw") or {},
+            "sfi": r.get("sfi") or {},
             "_close": float(close) if close else None,
         })
     return out
+
+
+def _sfi_context(s: dict) -> dict:
+    """Cảnh báo SFI cho AI. Backtest: điểm Oracle càng cao → lợi nhuận tương lai càng KÉM."""
+    if not s:
+        return {}
+    return {
+        "diem_dong_thuan_ky_thuat_0_6": s.get("oracle_score"),
+        "canh_bao_qua_nong": s.get("overheated"),
+        "GHI_CHU": ("Backtest 1.483 mã: quan hệ NGHỊCH ĐẢO — điểm đồng thuận càng CAO thì lợi nhuận "
+                    "20 phiên tới càng THẤP (điểm 0: +2.9%; điểm 5-6: ~0%). Điểm cao = cảnh báo "
+                    "QUÁ NÓNG, KHÔNG phải tín hiệu mua."),
+        "muc_cat_lo_dong_UTBot": s.get("ut_stop"),
+    }
+
+
+def _nw_context(nw: dict) -> dict:
+    """Tóm tắt tín hiệu thời điểm Nadaraya-Watson cho AI."""
+    if not nw:
+        return {}
+    return {
+        "tin_hieu_hom_nay": nw.get("signal") or "không",
+        "so_nen_tu_tin_hieu_MUA_gan_nhat": nw.get("bars_since_buy"),
+        "so_nen_tu_tin_hieu_BAN_gan_nhat": nw.get("bars_since_sell"),
+        "vi_tri_trong_dai_0_1": nw.get("position"),  # gần 0 = sát dải dưới (rẻ), gần 1 = sát dải trên
+    }
 
 
 def _ai_select(cands: list[dict]) -> dict[str, dict]:
@@ -93,11 +121,18 @@ def _ai_select(cands: list[dict]) -> dict[str, dict]:
         "symbol": c["symbol"], "diem_tong": c["final_score"], "tin_hieu": c["signal"],
         "diem": _label_scores(c["parts"]), "pe": c["pe"], "pb": c["pb"],
         "luan_diem_he_thong": c["why"], "rui_ro_luu_y": c["main_risks"],
+        "thoi_diem_nadaraya_watson": _nw_context(c.get("nw")),
+        "canh_bao_ky_thuat_sfi": _sfi_context(c.get("sfi")),
     } for c in cands]
     prompt = (
         "Đây là các cổ phiếu được hệ thống chấm điểm cao nhất hôm nay. TẤT CẢ điểm thang 0-100 và "
-        "CAO = TỐT (kể cả 'an_toan_tai_chinh': cao nghĩa là ÍT rủi ro). Với vai trò cố vấn đầu tư "
-        "TRUNG HẠN, hãy CHỌN LỌC — thà ít mà chất. Với mỗi mã, quyết định action:\n"
+        "CAO = TỐT (kể cả 'an_toan_tai_chinh': cao nghĩa là ÍT rủi ro).\n"
+        "Trường 'thoi_diem_nadaraya_watson' là tín hiệu THỜI ĐIỂM kỹ thuật: tín_hiệu_hôm_nay=BUY "
+        "(dải dưới bẻ lên → điểm vào tốt), =SELL (dải trên bẻ xuống → nên chờ/giảm), "
+        "vi_tri_trong_dai gần 0 = giá sát dải dưới (rẻ tương đối), gần 1 = sát dải trên (đắt).\n"
+        "Với vai trò cố vấn đầu tư TRUNG HẠN, hãy CHỌN LỌC — thà ít mà chất. Cân nhắc CẢ nền tảng "
+        "LẪN thời điểm: nền tảng tốt nhưng đang có SELL/sát dải trên thì nên 'Theo dõi' chờ điểm vào.\n"
+        "Với mỗi mã, quyết định action:\n"
         '  "Mua tích lũy" = thực sự đáng giải ngân/tích lũy lúc này,\n'
         '  "Theo dõi" = tiềm năng nhưng chờ thêm,\n'
         '  "Tránh" = không nên mua dù điểm cao (định giá quá đắt, rủi ro lớn...).\n'
@@ -143,13 +178,25 @@ def curate(session, ts: date, *, send: bool = True) -> list[dict]:
         price = c.get("_close") or 0
         levels = recommend.compute_levels(price, c.get("support"), c.get("resistance"),
                                           c["final_score"]) if price else {}
+        nw = c.get("nw") or {}
+        sf = c.get("sfi") or {}
+        # Cắt lỗ: ưu tiên UT Bot (trailing stop theo ATR — đúng mục đích thiết kế của chỉ báo),
+        # chỉ dùng khi nó nằm DƯỚI giá hiện tại và không quá xa (<25%).
+        stop = levels.get("stop_loss")
+        ut = sf.get("ut_stop")
+        if ut and price and 0 < ut < price and (price / ut - 1) < 0.25:
+            stop = ut
         picks.append({
             "symbol": c["symbol"], "action": action or "Mua tích lũy",
             "conviction": v.get("conviction"), "final_score": c["final_score"],
             "thesis": v.get("thesis", c.get("why", "")),
             "buy_low": levels.get("buy_low"), "buy_high": levels.get("buy_high"),
-            "target_price": levels.get("target_price"), "stop_loss": levels.get("stop_loss"),
+            "target_price": levels.get("target_price"), "stop_loss": stop,
             "method": method,
+            # thêm để hiển thị (repo tự lọc cột không có trong bảng)
+            "nw_signal": nw.get("signal"), "nw_position": nw.get("position"),
+            "nw_bars_since_buy": nw.get("bars_since_buy"),
+            "oracle_score": sf.get("oracle_score"), "overheated": sf.get("overheated"),
         })
 
     repo.replace_daily_picks(session, ts, picks)

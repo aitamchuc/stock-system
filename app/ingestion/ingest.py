@@ -23,8 +23,9 @@ def _fetch_ohlcv(provider, symbol, start, end):
     return provider.ohlcv(symbol, start, end)
 
 
-def ingest_prices(session: Session, symbol: str, lookback_days: int = 400,
+def ingest_prices(session: Session, symbol: str, lookback_days: int = 760,
                   end: date | None = None) -> int:
+    # 760 ngày lịch ≈ 500 phiên — đủ cửa sổ 499 của Nadaraya-Watson Envelope.
     provider = get_provider()
     end = end or date.today()
     start = end - timedelta(days=lookback_days)

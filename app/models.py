@@ -197,6 +197,32 @@ class PennyPick(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class NWPick(Base):
+    """Top mã có tín hiệu MUA Nadaraya-Watson trong phiên (quét toàn thị trường).
+
+    ⚠️ Kết quả sàng lọc kỹ thuật — KHÔNG phải khuyến nghị đầu tư. Backtest cho thấy tín hiệu
+    này KHÔNG vượt trội so với mua ngẫu nhiên; lưu lại để sau này đo hiệu quả thực tế.
+    """
+    __tablename__ = "nw_picks"
+
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    ts: Mapped[date] = mapped_column(Date, primary_key=True)
+    rank: Mapped[int | None] = mapped_column(Integer)
+    price: Mapped[float | None] = mapped_column(Float)
+    lower: Mapped[float | None] = mapped_column(Float)
+    upper: Mapped[float | None] = mapped_column(Float)
+    mid: Mapped[float | None] = mapped_column(Float)
+    position: Mapped[float | None] = mapped_column(Float)
+    liquidity: Mapped[float | None] = mapped_column(Float)
+    ma200: Mapped[float | None] = mapped_column(Float)
+    above_ma200: Mapped[bool | None] = mapped_column(Boolean)
+    cmf: Mapped[float | None] = mapped_column(Float)            # Chaikin Money Flow 20 phiên
+    foreign_net: Mapped[float | None] = mapped_column(Float)    # khối ngoại ròng phiên (VND)
+    nw_buy: Mapped[bool | None] = mapped_column(Boolean)        # có tín hiệu BUY của NW không
+    score: Mapped[float | None] = mapped_column(Float)      # điểm xếp hạng (không phải xác suất thắng)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class DailyPick(Base):
     """Danh sách cổ phiếu NÊN ĐẦU TƯ do AI agent chọn lọc mỗi ngày (append-only theo ngày).
 

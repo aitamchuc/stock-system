@@ -24,7 +24,8 @@ from app.providers.base import MarketDataProvider
 _PERIOD_COL = re.compile(r"^\d{4}-Q\d$")
 
 # --- Rate limiter: gói Guest của vnstock giới hạn ~20 request/phút ---
-_MAX_PER_MIN = 18
+# Đặt 16 (biên an toàn) vì đôi khi có tiến trình khác cùng dùng API → tránh vượt hạn.
+_MAX_PER_MIN = 16
 _calls: deque[float] = deque()
 
 
