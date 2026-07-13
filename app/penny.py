@@ -77,6 +77,8 @@ def _start() -> str:
 
 
 def run(send: bool = True) -> None:
+    from app.config import banner
+    banner("penny")
     init_db()
     results = scan(send=send)
     if not results:

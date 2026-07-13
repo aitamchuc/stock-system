@@ -205,6 +205,8 @@ def scan(*, send: bool = True, max_symbols: int | None = None,
 
 def run(send: bool = True, max_symbols: int | None = None,
         symbols: list[str] | None = None) -> None:
+    from app.config import banner
+    banner("nw_scan")
     init_db()
     top = scan(send=send, max_symbols=max_symbols, symbols=symbols)
     if not top:

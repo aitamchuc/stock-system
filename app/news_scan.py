@@ -87,6 +87,8 @@ def scan(*, send: bool = True) -> dict:
 
 
 def run(send: bool = True) -> None:
+    from app.config import banner
+    banner("news")
     init_db()
     summary = scan(send=send)
     print(f"[news] Xong: {summary}")

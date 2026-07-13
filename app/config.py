@@ -106,3 +106,19 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+def banner(task: str) -> None:
+    """In dòng nhận diện phiên bản ở đầu mỗi lần chạy.
+
+    Cực kỳ hữu ích khi đọc log GitHub Actions: biết ngay run đó dùng COMMIT nào, model nào,
+    DB nào — tránh nhầm lẫn giữa run cũ và run mới (nút 'Re-run jobs' chạy lại commit cũ).
+    """
+    import os
+
+    sha = (os.getenv("GITHUB_SHA") or "local")[:7]
+    ref = os.getenv("GITHUB_REF_NAME") or "-"
+    db = "postgres" if "postgres" in settings.database_url else (
+        "sqlite" if settings.database_url.startswith("sqlite") else "?")
+    print(f"[version] task={task} commit={sha} branch={ref} "
+          f"model={settings.openai_model} db={db} source={settings.data_source}", flush=True)

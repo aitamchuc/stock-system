@@ -87,6 +87,8 @@ def collect_nw_signals(session, ts: date) -> tuple[list[dict], list[dict]]:
 
 
 def run_daily(ingest_data: bool = True, trade_date: date | None = None) -> dict:
+    from app.config import banner
+    banner("pipeline")
     init_db()
     summary = {"ingested": 0, "scored": 0, "alerts": 0, "skipped": 0}
 
