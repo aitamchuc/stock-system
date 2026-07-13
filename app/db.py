@@ -61,7 +61,38 @@ def get_db() -> Iterator[Session]:
         s.close()
 
 
+def _add_missing_columns() -> None:
+    """Thêm các cột mới vào bảng ĐÃ TỒN TẠI (create_all KHÔNG làm việc này).
+
+    Không có bước này, mỗi lần thêm cột vào model là DB cũ (Supabase) sẽ thiếu cột và mọi
+    INSERT đều sập — trong khi máy local vẫn chạy tốt vì DB được tạo mới. Chỉ thêm cột
+    NULLABLE (an toàn, không cần backfill); cột NOT NULL sẽ được báo để xử lý thủ công.
+    """
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
+                continue
+            if not col.nullable and col.default is None and col.server_default is None:
+                print(f"[db] ⚠️ Cột {table.name}.{col.name} là NOT NULL — cần migration thủ công.")
+                continue
+            col_type = col.type.compile(engine.dialect)
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col_type}'))
+                print(f"[db] Đã thêm cột {table.name}.{col.name} ({col_type})")
+            except Exception as exc:  # pragma: no cover
+                print(f"[db] Không thêm được cột {table.name}.{col.name}: {str(exc)[:80]}")
+
+
 def init_db() -> None:
     from app import models  # noqa: F401  đảm bảo models được import trước create_all
 
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
