@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     nw_min_liquidity: float = 5_000_000_000.0   # GTGD tối thiểu/phiên (~5 tỷ) — mã đủ thanh khoản
     nw_min_price: float = 3_000.0               # loại cổ phiếu thị giá quá thấp
     nw_scan_max: int = 250                      # số mã phân tích sâu (giới hạn rate-limit)
-    nw_top_n: int = 10                          # số mã gửi Telegram
+    nw_top_n: int = 5                           # số mã quá nóng gửi Telegram
     nw_require_uptrend: bool = True             # lọc: giá > MA200 (xu hướng tăng)
     nw_require_inflow: bool = True              # lọc: CMF20 > 0 (dòng tiền đang vào)
     # Bắt buộc PHẢI có tín hiệu BUY của NW mới lọt danh sách?

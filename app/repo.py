@@ -67,6 +67,14 @@ def upsert_symbols(session: Session, items: list[dict]) -> None:
     _upsert(session, Symbol, items, ["symbol"])
 
 
+def upsert_ohlcv_rows(session: Session, rows: list[dict]) -> int:
+    """Ghi OHLCV từ list dict (dùng khi copy DB→DB, không qua DataFrame)."""
+    if not rows:
+        return 0
+    _upsert(session, OHLCV, rows, ["symbol", "ts"])
+    return len(rows)
+
+
 def upsert_ohlcv(session: Session, symbol: str, df: pd.DataFrame) -> int:
     if df is None or df.empty:
         return 0
