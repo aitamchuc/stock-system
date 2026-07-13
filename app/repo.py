@@ -1,18 +1,16 @@
 """Hàm truy cập DB dùng chung (upsert idempotent, load dữ liệu cho engine)."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
+import numpy as np
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from datetime import timedelta
-
-from sqlalchemy import delete
 
 from app.models import (
     DailyPick,
@@ -30,9 +28,26 @@ from app.models import (
 )
 
 
+def _native(v):
+    """Chuyển kiểu numpy → kiểu Python thuần (đệ quy vào dict/list).
+
+    BẮT BUỘC trước khi ghi DB: psycopg2 KHÔNG biết adapt np.float64/np.int64 → nó render thành
+    chuỗi 'np.float64(6.4)' và Postgres báo lỗi 'schema "np" does not exist'. SQLite thì bỏ qua
+    được (np.float64 là lớp con của float) nên bug chỉ lộ ra trên Postgres/Supabase.
+    """
+    if isinstance(v, np.generic):          # np.float64, np.int64, np.bool_...
+        return v.item()
+    if isinstance(v, dict):
+        return {k: _native(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_native(x) for x in v]
+    return v
+
+
 def _upsert(session: Session, model, rows: list[dict], pk_cols: list[str]) -> None:
     if not rows:
         return
+    rows = [_native(r) for r in rows]
     dialect = session.bind.dialect.name
     ins = sqlite_insert if dialect == "sqlite" else pg_insert
     stmt = ins(model).values(rows)
@@ -179,7 +194,8 @@ def insert_news_impacts(session: Session, rows: list[dict]) -> int:
     if not rows:
         return 0
     valid = {c.name for c in NewsImpact.__table__.columns}
-    session.add_all([NewsImpact(**{k: v for k, v in r.items() if k in valid}) for r in rows])
+    session.add_all([NewsImpact(**_native({k: v for k, v in r.items() if k in valid}))
+                     for r in rows])
     return len(rows)
 
 
@@ -188,7 +204,8 @@ def replace_nw_picks(session: Session, ts: date, rows: list[dict]) -> int:
     valid = {c.name for c in NWPick.__table__.columns}
     # rows có thể đã chứa 'ts' → gộp rồi ghi đè bằng ts truyền vào (tránh trùng keyword)
     session.add_all([
-        NWPick(**{**{k: v for k, v in r.items() if k in valid}, "ts": ts}) for r in rows
+        NWPick(**_native({**{k: v for k, v in r.items() if k in valid}, "ts": ts}))
+        for r in rows
     ])
     return len(rows)
 
@@ -197,7 +214,10 @@ def replace_daily_picks(session: Session, ts: date, rows: list[dict]) -> int:
     """Xóa danh sách chọn lọc cũ của ngày rồi ghi mới (để re-run không để lại mã cũ)."""
     session.execute(delete(DailyPick).where(DailyPick.ts == ts))
     valid = {c.name for c in DailyPick.__table__.columns}
-    session.add_all([DailyPick(ts=ts, **{k: v for k, v in r.items() if k in valid}) for r in rows])
+    session.add_all([
+        DailyPick(**_native({**{k: v for k, v in r.items() if k in valid}, "ts": ts}))
+        for r in rows
+    ])
     return len(rows)
 
 
