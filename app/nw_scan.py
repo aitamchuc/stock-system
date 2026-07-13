@@ -118,6 +118,7 @@ def scan(*, send: bool = True, max_symbols: int | None = None,
     provider = get_provider()
     max_symbols = max_symbols or settings.nw_scan_max
 
+    listed: list[dict] = []
     if symbols:
         cands = [{"symbol": s.upper(), "liquidity": 0.0} for s in symbols][:max_symbols]
     else:
@@ -144,53 +145,67 @@ def scan(*, send: bool = True, max_symbols: int | None = None,
         cands = cands[:max_symbols]
     print(f"[nw] {len(cands)} mã đủ thanh khoản → phân tích tổ hợp (có thể mất vài phút)...")
 
-    # --- Tầng 2: tính NW trên nến đã đóng ---
-    hits: list[dict] = []
+    # Đăng ký mã vào bảng symbols TRƯỚC (ohlcv có khóa ngoại tới symbols → không có bước này
+    # sẽ ForeignKeyViolation, và lỗi đó làm hỏng cả transaction → mọi mã sau đều fail).
+    ex_map = {s["symbol"]: s.get("exchange") for s in listed}
     with session_scope() as session:
-        for c in cands:
-            sym = c["symbol"]
-            try:
+        existing = {x.symbol for x in repo.active_symbols(session)}   # giữ nguyên watchlist đang active
+        repo.upsert_symbols(session, [
+            {"symbol": c["symbol"], "exchange": ex_map.get(c["symbol"]) or "?", "is_active": False}
+            for c in cands if c["symbol"] not in existing
+        ])
+
+    # --- Tầng 2: tính chỉ báo trên nến đã đóng ---
+    # MỖI MÃ MỘT SESSION: nếu dùng chung 1 session, lỗi ở 1 mã sẽ abort transaction và
+    # MỌI mã sau đó đều fail ("current transaction is aborted") — từng làm hỏng 148/250 mã.
+    hits: list[dict] = []
+    failed = 0
+    for c in cands:
+        sym = c["symbol"]
+        try:
+            with session_scope() as session:
                 df = _closed_bars(_get_ohlcv(session, provider, sym))
-            except Exception as exc:
-                print(f"[nw] {sym} lỗi tải giá: {exc}")
-                continue
-            if df is None or len(df) < 220:      # cần đủ cho MA200 + NW
-                continue
-            r = nw.latest_signal(df)
-            if not r:
-                continue
-            nw_buy = r["signal"] == "BUY"
-            # NW BUY KHÔNG dùng làm điều kiện bắt buộc (backtest: gate theo nó làm kém đi rõ rệt)
-            if settings.nw_require_buy_signal and not nw_buy:
-                continue
+        except Exception as exc:
+            failed += 1
+            print(f"[nw] {sym} lỗi tải giá: {str(exc)[:80]}")
+            continue
 
-            close = float(df["close"].iloc[-1])
-            ma200 = float(df["close"].rolling(200).mean().iloc[-1])
-            above = close > ma200
-            if settings.nw_require_uptrend and not above:
-                continue
+        if df is None or len(df) < 220:          # cần đủ cho MA200 + NW
+            continue
+        r = nw.latest_signal(df)
+        if not r:
+            continue
+        nw_buy = r["signal"] == "BUY"
+        # NW BUY KHÔNG dùng làm điều kiện bắt buộc (backtest: gate theo nó làm kém đi rõ rệt)
+        if settings.nw_require_buy_signal and not nw_buy:
+            continue
 
-            flow = cmf20(df)                     # dòng tiền 20 phiên (proxy tích lũy)
-            if settings.nw_require_inflow and flow <= 0:
-                continue
+        close = float(df["close"].iloc[-1])
+        ma200 = float(df["close"].rolling(200).mean().iloc[-1])
+        above = close > ma200
+        if settings.nw_require_uptrend and not above:
+            continue
 
-            liq = c["liquidity"] or float(df["value"].tail(20).mean() or 0)
-            fnet = c.get("foreign_net")
-            sf = sfi.latest(df) or {}          # điểm đồng thuận kỹ thuật (Oracle 0-6)
-            pos = r["position"] or 0.5
-            hits.append({
-                "symbol": sym, "price": close,
-                "lower": r["lower"], "upper": r["upper"], "mid": r["mid"],
-                "position": pos, "liquidity": liq,
-                "ma200": ma200, "above_ma200": above,
-                "cmf": round(flow, 4), "foreign_net": fnet, "nw_buy": nw_buy,
-                "oracle_score": sf.get("oracle_score"),
-                "score": _heat_score(close, ma200, cmf=flow,
-                                     oracle=sf.get("oracle_score"), position=pos),
-                "ts": df["ts"].iloc[-1],
-            })
+        flow = cmf20(df)                         # dòng tiền 20 phiên (proxy tích lũy)
+        if settings.nw_require_inflow and flow <= 0:
+            continue
 
-    hits.sort(key=lambda x: x["score"], reverse=True)
+        liq = c["liquidity"] or float(df["value"].tail(20).mean() or 0)
+        sf = sfi.latest(df) or {}                # điểm đồng thuận kỹ thuật (Oracle 0-6)
+        pos = r["position"] or 0.5
+        hits.append({
+            "symbol": sym, "price": close,
+            "lower": r["lower"], "upper": r["upper"], "mid": r["mid"],
+            "position": pos, "liquidity": liq,
+            "ma200": ma200, "above_ma200": above,
+            "cmf": round(flow, 4), "foreign_net": c.get("foreign_net"), "nw_buy": nw_buy,
+            "oracle_score": sf.get("oracle_score"),
+            "score": _heat_score(close, ma200, cmf=flow,
+                                 oracle=sf.get("oracle_score"), position=pos),
+            "ts": df["ts"].iloc[-1],
+        })
+
+    hits.sort(key=lambda x: x["score"], reverse=True)   # nóng nhất lên đầu
     top = hits[: settings.nw_top_n]
     for i, h in enumerate(top, 1):
         h["rank"] = i
@@ -198,7 +213,9 @@ def scan(*, send: bool = True, max_symbols: int | None = None,
     if top:
         with session_scope() as session:
             repo.replace_nw_picks(session, top[0]["ts"], top)
-    print(f"[nw] {len(hits)} tín hiệu MUA đạt lọc → gửi top {len(top)}.")
+    if failed:
+        print(f"[nw] ⚠️ {failed}/{len(cands)} mã lỗi khi tải giá.")
+    print(f"[nw] {len(hits)} mã QUÁ NÓNG → gửi top {len(top)}.")
 
     if send:
         ts = str(top[0]["ts"]) if top else str(date.today())

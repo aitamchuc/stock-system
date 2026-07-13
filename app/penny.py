@@ -42,11 +42,13 @@ def scan(*, send: bool = True, top: int | None = None) -> list[dict]:
         snapshot, settings.penny_price_max, settings.penny_min_liquidity)
     print(f"[penny] {len(candidates)} mã penny có thanh khoản → phân tích sâu top {top}.")
 
-    # Tầng 2: phân tích sâu top ứng viên
+    # Tầng 2: phân tích sâu top ứng viên.
+    # MỖI MÃ MỘT SESSION — nếu dùng chung, lỗi ở 1 mã abort transaction và mọi mã sau đều fail.
     results: list[dict] = []
-    with session_scope() as session:
-        for cand in candidates[:top]:
-            sym = cand["symbol"]
+    failed = 0
+    for cand in candidates[:top]:
+        sym = cand["symbol"]
+        try:
             df = provider.ohlcv(sym, _start(), today.isoformat())
             res = penny_scanner.analyze(df, cand)
             st = res["stats"]
@@ -58,8 +60,14 @@ def scan(*, send: bool = True, top: int | None = None) -> list[dict]:
                 "volume_zscore": st.get("volume_zscore"), "foreign_net": st.get("foreign_net"),
                 "signals": res["signals"], "warnings": res["warnings"],
             }
-            repo.upsert_penny_pick(session, sym, today, row)
+            with session_scope() as session:
+                repo.upsert_penny_pick(session, sym, today, row)
             results.append({"symbol": sym, **row})
+        except Exception as exc:
+            failed += 1
+            print(f"[penny] {sym} lỗi: {str(exc)[:80]}")
+    if failed:
+        print(f"[penny] ⚠️ {failed} mã lỗi khi phân tích.")
 
     results.sort(key=lambda r: r["upside_score"], reverse=True)
 
