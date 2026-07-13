@@ -28,7 +28,8 @@ jobs:
     env:
       TZ: Asia/Ho_Chi_Minh
       DATA_SOURCE: vnstock
-      OPENAI_MODEL: gpt-4o-mini
+      OPENAI_MODEL: gpt-5
+      OPENAI_REASONING_EFFORT: medium
       VNSTOCK_WATCHLIST: "ACB,BCM,BID,BVH,CTG,FPT,GAS,GVR,HDB,HPG,MBB,MSN,MWG,PLX,POW,SAB,SHB,SSB,SSI,STB,TCB,TPB,VCB,VHM,VIB,VIC,VJC,VNM,VPB,VRE"
       # Bí mật — đặt trong GitHub: Settings → Secrets and variables → Actions
       DATABASE_URL: ${{ secrets.DATABASE_URL }}

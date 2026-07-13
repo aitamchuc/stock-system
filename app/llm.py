@@ -6,7 +6,25 @@ Chọn nhà cung cấp:
 """
 from __future__ import annotations
 
+import re
+
 from app.config import settings
+
+# Model SUY LUẬN của OpenAI (gpt-5*, o1/o3/o4...) có API khác model thường:
+#   • dùng 'max_completion_tokens' (gửi 'max_tokens' → lỗi 400)
+#   • KHÔNG nhận 'temperature' khác 1
+#   • token SUY LUẬN tính chung vào ngân sách output → phải cấp headroom, nếu không model
+#     đốt hết ngân sách vào suy luận và trả về CHUỖI RỖNG (đã kiểm chứng: 512/600 token)
+_REASONING_RE = re.compile(r"^(gpt-5|o\d)", re.IGNORECASE)
+
+
+def is_reasoning_model(model: str) -> bool:
+    return bool(_REASONING_RE.match(model or ""))
+
+
+def _reasoning_budget(max_tokens: int) -> int:
+    """Ngân sách token cho model suy luận = output mong muốn + headroom cho phần suy luận."""
+    return max(max_tokens * 4, max_tokens + 3000)
 
 
 def provider() -> str:
@@ -39,11 +57,26 @@ def chat(prompt: str, *, max_tokens: int = 600, system: str | None = None,
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        resp = client.chat.completions.create(
-            model=settings.openai_model, messages=messages,
-            max_tokens=max_tokens, temperature=temperature,
-        )
-        return resp.choices[0].message.content or ""
+
+        model = settings.openai_model
+        kwargs: dict = {"model": model, "messages": messages}
+        if is_reasoning_model(model):
+            kwargs["max_completion_tokens"] = _reasoning_budget(max_tokens)
+            if settings.openai_reasoning_effort:
+                kwargs["reasoning_effort"] = settings.openai_reasoning_effort
+            # cố tình KHÔNG gửi temperature — model suy luận chỉ nhận mặc định
+        else:
+            kwargs["max_tokens"] = max_tokens
+            kwargs["temperature"] = temperature
+
+        resp = client.chat.completions.create(**kwargs)
+        text = resp.choices[0].message.content or ""
+        if not text:
+            # Thường do ngân sách bị suy luận đốt hết → báo rõ thay vì im lặng fallback
+            fr = resp.choices[0].finish_reason
+            print(f"[llm] {model} trả về RỖNG (finish_reason={fr}) — "
+                  f"có thể thiếu max_completion_tokens cho phần suy luận.")
+        return text
 
     if p == "anthropic":
         import anthropic

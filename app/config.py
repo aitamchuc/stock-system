@@ -30,7 +30,10 @@ class Settings(BaseSettings):
     # Ép cứng bằng llm_provider = "openai" | "anthropic" nếu muốn.
     llm_provider: str = ""              # "" = tự nhận diện theo key
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-5"
+    # Chỉ áp dụng cho model suy luận (gpt-5*, o-series): low | medium | high
+    # low = rẻ & nhanh, high = suy luận sâu & đắt. Để trống = dùng mặc định của OpenAI.
+    openai_reasoning_effort: str = "medium"
     anthropic_api_key: str = ""
     llm_model: str = "claude-sonnet-5"
 
