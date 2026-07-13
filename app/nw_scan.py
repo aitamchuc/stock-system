@@ -37,6 +37,7 @@ from app.bot import telegram
 from app.config import settings
 from app.db import init_db, session_scope
 from app.engines import nw_envelope as nw
+from app.engines import sfi
 from app.providers import get_provider
 from app import repo
 
@@ -92,24 +93,23 @@ def _clip(x, lo=0.0, hi=1.0):
     return max(lo, min(hi, x))
 
 
-def _rank_score(liquidity: float, position: float, close: float, ma200: float,
-                cmf: float = 0.0, foreign_net: float | None = None,
-                nw_buy: bool = False) -> float:
-    """Điểm XẾP HẠNG minh bạch — KHÔNG phải xác suất thắng (xem cảnh báo backtest trong docstring).
+def _heat_score(close: float, ma200: float, cmf: float = 0.0,
+                oracle: int | None = None, position: float = 0.5) -> float:
+    """ĐỘ NÓNG 0-100 — CAO = NGUY HIỂM, không phải "tốt".
 
-    25% thanh khoản · 25% dòng tiền CMF · 20% khối ngoại mua ròng · 20% độ mạnh xu hướng
-    · 10% thời điểm NW (có BUY, hoặc giá còn thấp trong dải).
+    Backtest toàn thị trường: nhóm mã có giá vượt xa MA200 + dòng tiền vào mạnh + đồng thuận
+    kỹ thuật cao chính là nhóm có kỳ vọng lợi nhuận THẤP NHẤT (giá>MA200: t=−18; Oracle 6/6:
+    ~0% sau 20 phiên vs Oracle 0/6: +2.9%). Vì vậy điểm này đo MỨC ĐỘ RỦI RO ĐUỔI MUA,
+    KHÔNG phải chất lượng cơ hội.
+
+    35% giá vượt MA200 · 25% đồng thuận kỹ thuật (Oracle) · 25% dòng tiền vào · 15% giá sát mép trên dải
     """
-    liq = _clip(np.log10(max(liquidity, 1)) / 11.0)                # ~1e11 -> 1.0
-    trend = _clip((close / ma200 - 1.0) / 0.20)                    # trên MA200 tới +20%
-    flow = _clip(cmf / 0.15)                                       # CMF 0.15 = dòng tiền vào mạnh
-    if foreign_net is None or not liquidity:
-        fn = 0.5                                                   # không có dữ liệu → trung tính
-    else:
-        fn = _clip(foreign_net / (0.05 * liquidity), -1.0, 1.0) / 2 + 0.5
-    timing = 1.0 if nw_buy else 0.5 * _clip(1.0 - position)
-    return round(100 * (0.25 * liq + 0.25 * flow + 0.20 * fn
-                        + 0.20 * trend + 0.10 * timing), 1)
+    trend = _clip((close / ma200 - 1.0) / 0.40)          # vượt MA200 tới +40% = nóng tối đa
+    consensus = _clip((oracle or 0) / 6.0)               # 6/6 = đồng thuận tuyệt đối
+    flow = _clip(cmf / 0.20)                             # dòng tiền vào càng mạnh càng nóng
+    top_of_band = _clip(position)                        # giá càng sát mép trên dải càng nóng
+    return round(100 * (0.35 * trend + 0.25 * consensus
+                        + 0.25 * flow + 0.15 * top_of_band), 1)
 
 
 def scan(*, send: bool = True, max_symbols: int | None = None,
@@ -176,14 +176,17 @@ def scan(*, send: bool = True, max_symbols: int | None = None,
 
             liq = c["liquidity"] or float(df["value"].tail(20).mean() or 0)
             fnet = c.get("foreign_net")
+            sf = sfi.latest(df) or {}          # điểm đồng thuận kỹ thuật (Oracle 0-6)
+            pos = r["position"] or 0.5
             hits.append({
                 "symbol": sym, "price": close,
                 "lower": r["lower"], "upper": r["upper"], "mid": r["mid"],
-                "position": r["position"], "liquidity": liq,
+                "position": pos, "liquidity": liq,
                 "ma200": ma200, "above_ma200": above,
                 "cmf": round(flow, 4), "foreign_net": fnet, "nw_buy": nw_buy,
-                "score": _rank_score(liq, r["position"] or 0.5, close, ma200,
-                                     cmf=flow, foreign_net=fnet, nw_buy=nw_buy),
+                "oracle_score": sf.get("oracle_score"),
+                "score": _heat_score(close, ma200, cmf=flow,
+                                     oracle=sf.get("oracle_score"), position=pos),
                 "ts": df["ts"].iloc[-1],
             })
 
@@ -210,18 +213,19 @@ def run(send: bool = True, max_symbols: int | None = None,
     init_db()
     top = scan(send=send, max_symbols=max_symbols, symbols=symbols)
     if not top:
-        print("[nw] Hôm nay không có mã nào qua bộ lọc xu hướng + dòng tiền.")
+        print("[nw] Hôm nay không có mã nào rơi vào vùng quá nóng.")
         return
-    print(f"\n{'#':<3}{'Mã':<7}{'Giá':>10}{'CMF':>8}{'NgoạiRòng(tỷ)':>15}"
-          f"{'>MA200':>9}{'NW':>5}{'Điểm':>7}")
-    print("-" * 64)
+    print(f"\n{'Mã':<7}{'Giá':>10}{'>MA200':>9}{'Oracle':>8}{'CMF':>8}"
+          f"{'NgoạiRòng(tỷ)':>15}{'ĐộNóng':>8}")
+    print("-" * 66)
     for h in top:
         fn = (h.get("foreign_net") or 0) / 1e9
-        print(f"{h['rank']:<3}{h['symbol']:<7}{h['price']:>10,.0f}{h['cmf']:>8.3f}"
-              f"{fn:>15,.1f}{(h['price']/h['ma200']-1):>8.1%}"
-              f"{('BUY' if h['nw_buy'] else '—'):>5}{h['score']:>7.0f}")
-    print("\n⚠️  SÀNG LỌC — KHÔNG phải khuyến nghị mua. Backtest (mẫu không chồng lấn): không yếu tố "
-          "nào đạt ý nghĩa thống kê; gate theo NW BUY còn làm kém đi.")
+        orc = h.get("oracle_score")
+        print(f"{h['symbol']:<7}{h['price']:>10,.0f}{(h['price']/h['ma200']-1):>8.1%}"
+              f"{(f'{orc}/6' if orc is not None else '—'):>8}{h['cmf']:>8.3f}"
+              f"{fn:>15,.1f}{h['score']:>8.0f}")
+    print("\n🔥 CẢNH BÁO QUÁ NÓNG — ĐỪNG ĐUỔI MUA. Backtest toàn thị trường: đây là nhóm mã có kỳ "
+          "vọng lợi nhuận THẤP NHẤT (giá>MA200: t=−18; Oracle 6/6 → ~0% vs Oracle 0/6 → +2.9%).")
 
 
 if __name__ == "__main__":

@@ -198,10 +198,11 @@ class PennyPick(Base):
 
 
 class NWPick(Base):
-    """Top mã có tín hiệu MUA Nadaraya-Watson trong phiên (quét toàn thị trường).
+    """Mã QUÁ NÓNG trong phiên (quét toàn thị trường) — CẢNH BÁO RỦI RO, không phải gợi ý mua.
 
-    ⚠️ Kết quả sàng lọc kỹ thuật — KHÔNG phải khuyến nghị đầu tư. Backtest cho thấy tín hiệu
-    này KHÔNG vượt trội so với mua ngẫu nhiên; lưu lại để sau này đo hiệu quả thực tế.
+    ⚠️ Backtest toàn thị trường (~1.480 mã): nhóm mã giá vượt xa MA200 + dòng tiền vào mạnh +
+    đồng thuận kỹ thuật cao chính là nhóm có kỳ vọng lợi nhuận THẤP NHẤT (t=−18). Cột `score`
+    là ĐỘ NÓNG (cao = nguy hiểm), KHÔNG phải điểm chất lượng.
     """
     __tablename__ = "nw_picks"
 
@@ -219,7 +220,8 @@ class NWPick(Base):
     cmf: Mapped[float | None] = mapped_column(Float)            # Chaikin Money Flow 20 phiên
     foreign_net: Mapped[float | None] = mapped_column(Float)    # khối ngoại ròng phiên (VND)
     nw_buy: Mapped[bool | None] = mapped_column(Boolean)        # có tín hiệu BUY của NW không
-    score: Mapped[float | None] = mapped_column(Float)      # điểm xếp hạng (không phải xác suất thắng)
+    oracle_score: Mapped[int | None] = mapped_column(Integer)   # đồng thuận kỹ thuật 0-6
+    score: Mapped[float | None] = mapped_column(Float)          # ĐỘ NÓNG 0-100 (cao = NGUY HIỂM)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

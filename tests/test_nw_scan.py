@@ -12,23 +12,23 @@ os.environ["TELEGRAM_CHAT_ID"] = ""
 import pandas as pd  # noqa: E402
 
 from app.bot import telegram  # noqa: E402
-from app.nw_scan import _rank_score, cmf20  # noqa: E402
+from app.nw_scan import _heat_score, cmf20  # noqa: E402
 
 
-def test_rank_score_bounds_and_monotonic():
-    lo = _rank_score(1e9, 0.9, 100, 100, cmf=-0.1)
-    hi = _rank_score(5e10, 0.1, 120, 100, cmf=0.2, foreign_net=1e9, nw_buy=True)
-    assert 0 <= lo <= 100 and 0 <= hi <= 100
-    assert hi > lo
-    # thanh khoản cao hơn -> điểm cao hơn
-    assert _rank_score(5e10, 0.5, 110, 100) > _rank_score(1e9, 0.5, 110, 100)
-    # dòng tiền vào mạnh hơn -> điểm cao hơn
-    assert _rank_score(1e10, 0.5, 110, 100, cmf=0.15) > _rank_score(1e10, 0.5, 110, 100, cmf=0.0)
-    # khối ngoại mua ròng -> điểm cao hơn bán ròng
-    assert (_rank_score(1e10, 0.5, 110, 100, foreign_net=5e8)
-            > _rank_score(1e10, 0.5, 110, 100, foreign_net=-5e8))
-    # thiếu dữ liệu khối ngoại -> trung tính, vẫn hợp lệ
-    assert 0 <= _rank_score(1e10, 0.5, 110, 100, foreign_net=None) <= 100
+def test_heat_score_higher_means_more_dangerous():
+    """ĐỘ NÓNG: cao = nguy hiểm (vượt xa MA200 + đồng thuận cao + dòng tiền mạnh)."""
+    mat = _heat_score(close=100, ma200=100, cmf=0.0, oracle=0, position=0.1)   # nguội
+    nong = _heat_score(close=140, ma200=100, cmf=0.25, oracle=6, position=0.95)  # cực nóng
+    assert 0 <= mat <= 100 and 0 <= nong <= 100
+    assert nong > mat
+    # càng vượt xa MA200 càng nóng
+    assert _heat_score(130, 100, oracle=3) > _heat_score(105, 100, oracle=3)
+    # đồng thuận kỹ thuật càng cao càng nóng
+    assert _heat_score(110, 100, oracle=6) > _heat_score(110, 100, oracle=1)
+    # dòng tiền vào càng mạnh càng nóng
+    assert _heat_score(110, 100, cmf=0.25, oracle=3) > _heat_score(110, 100, cmf=0.0, oracle=3)
+    # thiếu oracle vẫn hợp lệ
+    assert 0 <= _heat_score(110, 100, oracle=None) <= 100
 
 
 def test_cmf20_sign():
@@ -41,28 +41,29 @@ def test_cmf20_sign():
     assert cmf20(up) > 0 > cmf20(dn)
 
 
-def test_format_empty_says_no_signal():
+def test_format_empty_says_no_overheat():
     msg = telegram.format_nw_picks([], "2026-07-09", scanned=250)
     assert "không mã nào" in msg.lower()
     assert "khuyến nghị" in msg.lower()          # vẫn có disclaimer
 
 
-def test_format_picks_render():
+def test_format_frames_as_warning_not_buy_list():
+    """Bản tin PHẢI đóng khung là CẢNH BÁO, tuyệt đối không được gợi ý mua."""
     picks = [
-        {"rank": 1, "symbol": "FPT", "price": 72000, "lower": 65000, "upper": 79000,
-         "position": 0.35, "liquidity": 3.2e11, "ma200": 68000, "score": 71.0,
-         "cmf": 0.12, "foreign_net": 3.2e10, "nw_buy": True},
-        {"rank": 2, "symbol": "HPG", "price": 23400, "lower": 22000, "upper": 25000,
-         "position": 0.47, "liquidity": 5.0e10, "ma200": 22800, "score": 63.0,
-         "cmf": 0.04, "foreign_net": -5e9, "nw_buy": False},
+        {"rank": 1, "symbol": "VIC", "price": 223000, "lower": 200000, "upper": 240000,
+         "position": 0.60, "liquidity": 4.28e11, "ma200": 156000, "score": 92.0,
+         "cmf": 0.348, "foreign_net": 2.87e10, "nw_buy": False, "oracle_score": 6},
     ]
-    msg = telegram.format_nw_picks(picks, "2026-07-09", scanned=250)
-    assert "FPT" in msg and "HPG" in msg
-    assert "TOP 2" in msg
-    assert "CMF" in msg and "khối ngoại" in msg          # hiện đủ 3 yếu tố
-    # bắt buộc nêu rõ không phải khuyến nghị mua + cảnh báo backtest
-    assert "KHÔNG PHẢI KHUYẾN NGHỊ MUA" in msg
-    assert "ý nghĩa thống kê" in msg
+    msg = telegram.format_nw_picks(picks, "2026-07-10", scanned=139)
+    assert "VIC" in msg
+    assert "QUÁ NÓNG" in msg
+    assert "ĐỪNG ĐUỔI MUA" in msg
+    assert "6/6" in msg                                   # hiện đồng thuận kỹ thuật
+    assert "Độ nóng" in msg                               # không phải "điểm xếp hạng"
+    # TUYỆT ĐỐI không được đóng khung là cơ hội
+    assert "ĐÁNG THEO DÕI" not in msg.upper()
+    assert "xếp hạng" not in msg.lower()
+    assert "THẤP NHẤT" in msg                             # nêu rõ kỳ vọng lợi nhuận thấp nhất
 
 
 if __name__ == "__main__":

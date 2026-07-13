@@ -139,33 +139,40 @@ def format_news_brief(brief: str, sources: list[dict], run_label: str = "") -> s
 
 
 def format_nw_picks(picks: list[dict], ts: str, scanned: int = 0) -> str:
-    """Top mã qua bộ lọc tổ hợp: dòng tiền vào + xu hướng tăng (NW là bối cảnh thời điểm)."""
-    head = (f"📡 <b>TOP {len(picks)} MÃ ĐÁNG THEO DÕI — {_esc(ts)}</b>\n"
-            f"<i>Quét {scanned} mã thanh khoản cao · lọc: giá &gt; MA200 + dòng tiền vào (CMF&gt;0)</i>\n")
+    """CẢNH BÁO QUÁ NÓNG — các mã đang được kỹ thuật đồng thuận tăng mạnh nhất.
+
+    ⚠️ Đây KHÔNG phải danh sách mua. Backtest toàn thị trường cho thấy đúng nhóm mã này
+    (giá vượt xa MA200 + dòng tiền vào + đồng thuận kỹ thuật cao) có kỳ vọng lợi nhuận
+    THẤP NHẤT. Trình bày như "top mã đáng theo dõi" sẽ dẫn người đọc đi sai.
+    """
+    head = (f"🔥 <b>CẢNH BÁO QUÁ NÓNG — {_esc(ts)}</b>\n"
+            f"<i>{len(picks)} mã đang tăng nóng nhất trong {scanned} mã thanh khoản cao "
+            f"(vượt MA200 + dòng tiền vào mạnh)</i>\n"
+            f"<b>⛔ ĐỪNG ĐUỔI MUA</b> — dữ liệu cho thấy đây là lúc kỳ vọng lợi nhuận THẤP NHẤT.\n")
     if not picks:
-        return (head + "\nHôm nay không mã nào qua được bộ lọc xu hướng + dòng tiền.\n—\n"
-                + _DISCLAIMER)
+        return (head.replace("⛔ ĐỪNG ĐUỔI MUA</b>", "</b>")
+                + "\nHôm nay không mã nào rơi vào vùng quá nóng.\n—\n" + _DISCLAIMER)
     lines = [head]
     for p in picks:
-        pos = p.get("position")
-        pos_s = f" · giá ở {pos:.0%} dải" if pos is not None else ""
         liq = (p.get("liquidity") or 0) / 1e9
         fn = p.get("foreign_net")
         fn_s = f" · khối ngoại {fn/1e9:+.1f} tỷ" if fn else ""
-        nw_s = " · ⏱ NW: tín hiệu MUA hôm nay" if p.get("nw_buy") else ""
+        oracle = p.get("oracle_score")
+        or_s = f" · đồng thuận kỹ thuật <b>{oracle}/6</b>" if oracle is not None else ""
+        above = (p["price"] / p["ma200"] - 1)
         lines.append(
-            f"\n<b>{p['rank']}. {_esc(p['symbol'])}</b> — {p['price']:,.0f}{pos_s}\n"
-            f"   Thanh khoản {liq:,.1f} tỷ · trên MA200 {(p['price']/p['ma200']-1):+.1%}"
-            f" · dòng tiền CMF {p.get('cmf', 0):+.3f}{fn_s}\n"
-            f"   Điểm xếp hạng {p['score']:.0f}{nw_s}"
+            f"\n🔥 <b>{_esc(p['symbol'])}</b> — {p['price']:,.0f} "
+            f"(<b>+{above:.0%} trên MA200</b>){or_s}\n"
+            f"   Độ nóng {p['score']:.0f}/100 · thanh khoản {liq:,.1f} tỷ"
+            f" · dòng tiền CMF {p.get('cmf', 0):+.3f}{fn_s}"
         )
     lines.append(
-        "\n—\n🚨 <b>ĐÂY LÀ DANH SÁCH THEO DÕI, KHÔNG PHẢI KHUYẾN NGHỊ MUA.</b>\n"
-        "<i>Backtest toàn thị trường (~1.450 mã, 45.000+ quan sát độc lập): các bộ lọc kỹ thuật "
-        "này KHÔNG dự báo được lợi nhuận. Tín hiệu MUA Nadaraya-Watson và lọc giá&gt;MA200 thậm chí "
-        "cho lợi nhuận ÂM có ý nghĩa thống kê MẠNH (t=−12 đến −18) — thị trường VN giai đoạn này "
-        "thiên về hồi quy về trung bình, mua lúc mạnh thua mua lúc yếu. Danh sách này chỉ để "
-        "khoanh vùng mã thanh khoản đáng theo dõi, KHÔNG dùng làm tín hiệu mua.</i>\n" + _DISCLAIMER)
+        "\n—\n🚨 <b>ĐÂY LÀ CẢNH BÁO RỦI RO, KHÔNG PHẢI GỢI Ý MUA.</b>\n"
+        "<i>Backtest toàn thị trường (~1.480 mã, 45.000+ quan sát độc lập): mua khi giá vượt MA200 "
+        "cho lợi nhuận ÂM (t=−18); mua khi đồng thuận kỹ thuật cao cũng ÂM (điểm 6/6 → ~0% sau 20 "
+        "phiên, trong khi điểm 0/6 → +2.9%). Thị trường VN giai đoạn này HỒI QUY VỀ TRUNG BÌNH — "
+        "mua lúc mạnh thua mua lúc yếu. 'Độ nóng' càng cao càng nên THẬN TRỌNG, không phải càng "
+        "nên mua. Nếu đang nắm giữ các mã này: cân nhắc mức cắt lỗ.</i>\n" + _DISCLAIMER)
     return "\n".join(lines)
 
 
