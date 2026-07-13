@@ -24,6 +24,31 @@ from app.providers import get_provider
 from app import repo
 
 
+def _closed_bars(df):
+    """Bỏ nến của hôm nay nếu phiên đang diễn ra.
+
+    BẮT BUỘC khi chạy trong phiên (vd 09:30): nến hôm nay mới có ~30 phút giao dịch →
+    volume z-score / ATR / đà 1 tháng đều sai lệch nặng nếu tính cả nó.
+    """
+    if df is None or df.empty:
+        return df
+    df = df.sort_values("ts")
+    if df["ts"].iloc[-1] >= date.today():
+        df = df.iloc[:-1]
+    return df
+
+
+def _liquidity_from_history(df) -> float:
+    """Thanh khoản THẬT = GTGD trung bình 20 phiên ĐÃ ĐÓNG.
+
+    Không dùng volume trong ngày từ price_board: lúc 09:30 mới có ~30 phút giao dịch nên
+    thanh khoản chỉ bằng ~10% cả phiên → lọc sai hoàn toàn.
+    """
+    if df is None or df.empty or "value" not in df.columns:
+        return 0.0
+    return float(df.sort_values("ts")["value"].tail(20).mean() or 0)
+
+
 def scan(*, send: bool = True, top: int | None = None) -> list[dict]:
     provider = get_provider()
     top = top or settings.penny_scan_top
@@ -38,23 +63,33 @@ def scan(*, send: bool = True, top: int | None = None) -> list[dict]:
         return []
     print(f"[penny] Quét {len(universe)} mã niêm yết...")
     snapshot = provider.market_snapshot(universe)
-    candidates = penny_scanner.screen(
-        snapshot, settings.penny_price_max, settings.penny_min_liquidity)
-    print(f"[penny] {len(candidates)} mã penny có thanh khoản → phân tích sâu top {top}.")
 
-    # Tầng 2: phân tích sâu top ứng viên.
+    # TẦNG 1 — SƠ TUYỂN (giá ≤ ngưỡng penny). KHÔNG lọc thanh khoản ở đây: volume từ price_board
+    # là volume TÍCH LŨY TRONG NGÀY → chạy lúc 09:30 mới có ~30 phút giao dịch, lọc sẽ sai hoàn
+    # toàn. Chỉ dùng nó để XẾP THỨ TỰ ứng viên (mã sôi động sớm thường là mã thanh khoản).
+    pre = penny_scanner.screen(snapshot, settings.penny_price_max, min_liquidity=0)
+    pre = pre[: top * 3]                       # lấy dư để tầng 2 còn loại bớt theo thanh khoản THẬT
+    print(f"[penny] {len(pre)} ứng viên giá ≤ {settings.penny_price_max:,.0f}đ "
+          f"→ xác minh thanh khoản thật từ nến đã đóng...")
+
+    # TẦNG 2 — phân tích sâu trên NẾN ĐÃ ĐÓNG + xác minh thanh khoản thật (TB 20 phiên).
     # MỖI MÃ MỘT SESSION — nếu dùng chung, lỗi ở 1 mã abort transaction và mọi mã sau đều fail.
     results: list[dict] = []
-    failed = 0
-    for cand in candidates[:top]:
+    failed = thin = 0
+    for cand in pre:
         sym = cand["symbol"]
         try:
-            df = provider.ohlcv(sym, _start(), today.isoformat())
+            df = _closed_bars(provider.ohlcv(sym, _start(), today.isoformat()))
+            liq = _liquidity_from_history(df)
+            if liq < settings.penny_min_liquidity:   # thanh khoản THẬT, không phải volume nửa phiên
+                thin += 1
+                continue
+            cand = {**cand, "value": liq}            # analyze() dùng 'value' làm thanh khoản
             res = penny_scanner.analyze(df, cand)
             st = res["stats"]
             row = {
                 "exchange": ex_map.get(sym), "price": cand.get("price"),
-                "liquidity": cand.get("value"),
+                "liquidity": liq,
                 "upside_score": res["upside_score"], "risk_score": res["risk_score"],
                 "return_1m_pct": st.get("return_1m_pct"), "atr_pct": st.get("atr_pct"),
                 "volume_zscore": st.get("volume_zscore"), "foreign_net": st.get("foreign_net"),
@@ -63,11 +98,16 @@ def scan(*, send: bool = True, top: int | None = None) -> list[dict]:
             with session_scope() as session:
                 repo.upsert_penny_pick(session, sym, today, row)
             results.append({"symbol": sym, **row})
+            if len(results) >= top:
+                break
         except Exception as exc:
             failed += 1
             print(f"[penny] {sym} lỗi: {str(exc)[:80]}")
+    if thin:
+        print(f"[penny] loại {thin} mã thanh khoản thật < {settings.penny_min_liquidity/1e9:.0f} tỷ.")
     if failed:
         print(f"[penny] ⚠️ {failed} mã lỗi khi phân tích.")
+    print(f"[penny] {len(results)} mã đạt yêu cầu.")
 
     results.sort(key=lambda r: r["upside_score"], reverse=True)
 
