@@ -7,6 +7,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["DATABASE_URL"] = "sqlite:///./test_stock.db"
 os.environ["DATA_SOURCE"] = "demo"
+os.environ["ALLOW_DEMO_OVERWRITE"] = "true"   # DB test dùng 1 lần
+
+import pytest  # noqa: E402
+
+from app.config import settings as _settings  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _rule_mode():
+    """Test này kiểm nhánh QUY TẮC (không LLM). settings là singleton dùng chung nên phải ép
+    tắt API key ở đây — nếu chỉ dựa vào os.environ, module test khác nạp settings trước sẽ
+    mang theo key thật từ .env và test gọi API thật → kết quả khác, fail ngẫu nhiên."""
+    old = (_settings.allow_demo_overwrite, _settings.openai_api_key,
+           _settings.anthropic_api_key, _settings.llm_provider)
+    _settings.allow_demo_overwrite = True
+    _settings.openai_api_key = ""
+    _settings.anthropic_api_key = ""
+    _settings.llm_provider = ""
+    yield
+    (_settings.allow_demo_overwrite, _settings.openai_api_key,
+     _settings.anthropic_api_key, _settings.llm_provider) = old
 os.environ["OPENAI_API_KEY"] = ""
 os.environ["ANTHROPIC_API_KEY"] = ""
 os.environ["LLM_PROVIDER"] = ""

@@ -14,6 +14,9 @@ class Settings(BaseSettings):
 
     # Data source
     data_source: str = "demo"          # "demo" | "vnstock"
+    # Cửa thoát CHỈ dành cho môi trường test: cho phép nguồn 'demo' ghi đè dữ liệu giá đã có.
+    # TUYỆT ĐỐI không bật ở production — giá synthetic sẽ đè lên giá thật (xem repo._demo_would_corrupt).
+    allow_demo_overwrite: bool = False
     vnstock_source: str = "VCI"
     # Danh mục theo dõi khi dùng vnstock (community edition bị giới hạn rate/limit,
     # nên không quét toàn bộ ~1600 mã). Chuỗi phân tách bằng dấu phẩy.

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -75,8 +75,29 @@ def upsert_ohlcv_rows(session: Session, rows: list[dict]) -> int:
     return len(rows)
 
 
+def _demo_would_corrupt(session: Session, symbol: str) -> bool:
+    """TRUE nếu đang chạy nguồn demo mà DB đã có dữ liệu giá cho mã này.
+
+    Vì sao cần: DemoProvider sinh giá synthetic (20k–100k) và nhiều mã thật (BSR, FPT, HPG...)
+    NẰM TRONG danh sách demo. Chỉ cần lỡ chạy một lệnh với DATA_SOURCE=demo trên DB thật là
+    giá giả ghi đè giá thật → mọi chỉ báo/backtest/cảnh báo đều sai (đã xảy ra: BSR 85.120
+    thay vì 25.750). Chặn ở tầng repo để bảo vệ MỌI đường ghi, không chỉ pipeline.
+    """
+    if settings.data_source != "demo" or settings.allow_demo_overwrite:
+        return False
+    n = session.execute(
+        select(func.count()).select_from(OHLCV).where(OHLCV.symbol == symbol)
+    ).scalar() or 0
+    if n > 0:
+        print(f"[repo] ⛔ CHẶN: nguồn 'demo' định ghi đè {n} nến THẬT của {symbol}. Bỏ qua.")
+        return True
+    return False
+
+
 def upsert_ohlcv(session: Session, symbol: str, df: pd.DataFrame) -> int:
     if df is None or df.empty:
+        return 0
+    if _demo_would_corrupt(session, symbol):
         return 0
     rows = [{"symbol": symbol, **{k: r[k] for k in
              ("ts", "open", "high", "low", "close", "volume", "value")}}

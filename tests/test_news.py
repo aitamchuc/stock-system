@@ -10,7 +10,22 @@ os.environ["OPENAI_API_KEY"] = ""
 os.environ["ANTHROPIC_API_KEY"] = ""
 os.environ["LLM_PROVIDER"] = ""
 
+import pytest  # noqa: E402
+
+from app.config import settings  # noqa: E402
 from app.engines import news_impact  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _rule_mode():
+    """Ép tắt LLM: settings là singleton dùng chung, module test khác có thể đã nạp key thật
+    từ .env → test này sẽ gọi API thật thay vì nhánh fallback keyword."""
+    old = (settings.openai_api_key, settings.anthropic_api_key, settings.llm_provider)
+    settings.openai_api_key = ""
+    settings.anthropic_api_key = ""
+    settings.llm_provider = ""
+    yield
+    (settings.openai_api_key, settings.anthropic_api_key, settings.llm_provider) = old
 
 
 def test_fallback_direction():

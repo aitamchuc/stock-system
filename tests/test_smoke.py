@@ -11,6 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_stock.db"
 os.environ["DATA_SOURCE"] = "demo"
+os.environ["ALLOW_DEMO_OVERWRITE"] = "true"   # DB test dùng 1 lần — cho phép demo ghi đè
+
+import pytest  # noqa: E402
+
+from app.config import settings  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _allow_demo():
+    """settings là singleton dùng chung → test khác có thể đã tắt cờ này. Bật lại cho DB test."""
+    old = settings.allow_demo_overwrite
+    settings.allow_demo_overwrite = True
+    yield
+    settings.allow_demo_overwrite = old
 
 from app.db import init_db, session_scope
 from app.pipeline import run_daily
