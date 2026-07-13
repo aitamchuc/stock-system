@@ -441,6 +441,28 @@ python -m app.recommend --force    # ép chạy cho toàn bộ mã đã chấm �
 Tự động chạy trong pipeline hằng ngày (bước 6) và gửi Telegram (`format_recommendation`).
 Xem trên dashboard: panel "🎯 Khuyến nghị giá" ở trang chi tiết mã, hoặc API `/api/recommendations`.
 
+### 🤖 Chọn model LLM — đo thật trên chính workload này
+
+Chạy cùng một tác vụ "AI chọn lọc cổ phiếu" trên 4 model (VIC có **P/E 148** — phán quyết đúng là
+**TRÁNH**):
+
+| Model | Reason tokens | $/tháng* | Phán quyết VIC | Ghi chú |
+|---|---|---|---|---|
+| gpt-5.4-nano | 352 | $0.33 | "Tránh" (thấp) | tiếng Việt bị lỗi chính tả |
+| gpt-5.4-mini | 661 | $1.45 | ❌ "Theo dõi" | **bỏ sót** — đáng lẽ phải tránh |
+| **gpt-5.6-luna** ⭐ | **130** | **$1.17** | ✅ "Tránh" (**tin cậy CAO**) | nêu đủ P/E 148, P/B 11.2, cảnh báo quá nóng 6/6 |
+| gpt-5.4 | 512 | $4.66 | ✅ "Tránh" (trung bình) | đắt gấp 4 mà không hơn |
+
+\* 242 lần gọi/tháng (chọn lọc 1/ngày + tin tức ~10/ngày × 22 ngày). Prompt tin dài hơn → thực tế
+~**$2–3/tháng**.
+
+👉 **Dùng `gpt-5.6-luna`** — phán quyết chuẩn & dứt khoát nhất, đồng thời **rẻ hơn cả gpt-5.4-mini**
+vì suy luận hiệu quả (130 token thay vì 512–661, không lan man). Đây là mặc định của hệ thống.
+
+⚠️ **Model suy luận (gpt-5*, o-series) có API KHÁC** — [app/llm.py](app/llm.py) tự xử lý:
+`max_completion_tokens` (không phải `max_tokens`), **không gửi `temperature`**, và **cấp headroom
+token** vì token suy luận ăn chung ngân sách output (thiếu → model trả về **chuỗi rỗng**).
+
 **Nhân cách agent:** LLM được nạp **system prompt "Cố vấn Đầu tư AI"** ([app/prompts/advisor.md](app/prompts/advisor.md))
 — chuyên gia phân tích & quản trị danh mục, tư duy thận trọng, rủi ro-trước-tiên, chỉ dùng dữ liệu
 được cấp, không cam kết lợi nhuận. Sửa file này để đổi "tính cách"/nguyên tắc của agent.

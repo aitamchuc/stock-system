@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     # Ép cứng bằng llm_provider = "openai" | "anthropic" nếu muốn.
     llm_provider: str = ""              # "" = tự nhận diện theo key
     openai_api_key: str = ""
-    openai_model: str = "gpt-5"
+    # gpt-5.6-luna: đo thật trên workload này → phán quyết chuẩn nhất VÀ rẻ hơn gpt-5.4-mini
+    # (suy luận hiệu quả: 130 token/lần thay vì 512-661). Xem README mục "Chọn model LLM".
+    openai_model: str = "gpt-5.6-luna"
     # Chỉ áp dụng cho model suy luận (gpt-5*, o-series): low | medium | high
     # low = rẻ & nhanh, high = suy luận sâu & đắt. Để trống = dùng mặc định của OpenAI.
     openai_reasoning_effort: str = "medium"

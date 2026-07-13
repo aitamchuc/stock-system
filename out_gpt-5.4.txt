@@ -1,0 +1,14 @@
+[
+  {
+    "symbol": "SAB",
+    "action": "Theo dõi",
+    "conviction": "Trung bình",
+    "thesis": "Cơ bản và an toàn tài chính rất mạnh (co_ban 99, sức_khỏe_tài_chính 92.9, an_toan_tai_chinh 100), định giá không quá cao so với chất lượng (P/E 12.56, P/B 2.5). Tuy nhiên kỹ thuật và dòng tiền còn yếu (ky_thuat 33, dong_tien_lon 43.4), hệ thống vẫn là 'watch' và chưa có tín hiệu mua hôm nay, nên phù hợp chờ xác nhận hơn là mua vội."
+  },
+  {
+    "symbol": "VIC",
+    "action": "Tránh",
+    "conviction": "Trung bình",
+    "thesis": "Dòng tiền lớn và nền tảng ở mức khá (co_ban 77.9, dong_tien_lon 76.6) nhưng định giá đang rất căng (dinh_gia_re 0, P/E 148.07, P/B 11.22). Thêm vào đó có cảnh báo kỹ thuật quá nóng và điểm đồng thuận kỹ thuật ở mức 6/6 theo hệ thống là tín hiệu bất lợi cho lợi nhuận ngắn-trung hạn; vì vậy không phù hợp tiêu chí 'ít mà chất' cho vị thế mua tích lũy hiện tại."
+  }
+]

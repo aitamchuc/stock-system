@@ -1,0 +1,14 @@
+[
+  {
+    "symbol": "VIC",
+    "action": "Tránh",
+    "conviction": "Trung bình",
+    "thesis": "Cơ bản/động lực dòng tiền tốt (co_ban=77.9; dong_tien_lon=76.6; suc_khoe_tai_chinh=65) nhưng định giá đang rất đắt (P/E=148.07; P/B=11.22) và có cảnh báo quá nóng theo hệ thống (canh_bao_qua_nong=true). Hệ thống hiện ở trạng thái 'watch' chứ không phải mua."
+  },
+  {
+    "symbol": "SAB",
+    "action": "Mua tích lũy",
+    "conviction": "Trung bình-Cao",
+    "thesis": "Nền tảng chất lượng cao (co_ban=99.0; suc_khoe_tai_chinh=92.9; an_toan_tai_chinh=100) và định giá tương đối hợp lý (P/E=12.56; P/B=2.5). Kỹ thuật hiện chưa mạnh (ky_thuat=33) nên ưu tiên mua tích lũy/đợi xác nhận, đồng thời lưu ý dữ liệu hệ thống cho thấy điểm đồng thuận quá cao có thể đi kèm lợi nhuận 20 phiên tới thấp hơn."
+  }
+]
