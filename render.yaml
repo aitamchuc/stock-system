@@ -1,9 +1,16 @@
-# Render Blueprint — deploy không cần VPS.
-# Gồm: 1 web dashboard (free) + 4 cron job chạy script theo lịch (KHÔNG cần Redis/Celery).
-# DB: dùng Postgres miễn phí bên ngoài (Neon/Supabase) qua biến DATABASE_URL (bí mật).
+# Render Blueprint — CHỈ web service (dashboard + bot Telegram webhook).
 #
-# Lịch dùng giờ UTC (Render cron luôn UTC). Quy đổi giờ VN (UTC+7):
-#   09:00 VN = 02:00 UTC | 14:00 VN = 07:00 UTC | 17:00 VN = 10:00 UTC | 17:30 VN = 10:30 UTC
+# ⚠️ KHÔNG đặt cron ở đây: các tác vụ theo lịch (tin 09:00/14:00, quá nóng 09:30, penny 09:35,
+#    chấm điểm 17:00) ĐÃ chạy MIỄN PHÍ trên GitHub Actions (.github/workflows/scheduled.yml).
+#    Bật cron ở cả hai nơi = mỗi tin Telegram gửi 2 lần + tốn gấp đôi tiền LLM.
+#    (Nếu sau này muốn bỏ GitHub Actions và chuyển hết sang Render, xem git history của file này.)
+#
+# Web service này làm 2 việc:
+#   1. Dashboard  → https://<ten-service>.onrender.com
+#   2. Bot Telegram 24/7 qua webhook → POST /telegram/webhook
+#      (gói free ngủ khi rảnh nhưng TỰ THỨC khi Telegram đẩy tin vào)
+#
+# DB: dùng Postgres miễn phí bên ngoài (Supabase/Neon) qua biến DATABASE_URL.
 
 envVarGroups:
   - name: stock-secrets
@@ -13,11 +20,13 @@ envVarGroups:
       - key: DATA_SOURCE
         value: vnstock
       - key: OPENAI_MODEL
-        value: gpt-4o-mini
+        value: gpt-5.6-luna              # đo thật: chuẩn nhất + rẻ (~$2-3/tháng). Xem README.
+      - key: OPENAI_REASONING_EFFORT
+        value: medium
       - key: VNSTOCK_WATCHLIST
         value: "ACB,BCM,BID,BVH,CTG,FPT,GAS,GVR,HDB,HPG,MBB,MSN,MWG,PLX,POW,SAB,SHB,SSB,SSI,STB,TCB,TPB,VCB,VHM,VIB,VIC,VJC,VNM,VPB,VRE"
       # Các bí mật — điền trong Render UI (không lưu vào file):
-      - key: DATABASE_URL                 # chuỗi kết nối Postgres từ Neon/Supabase
+      - key: DATABASE_URL                 # chuỗi kết nối Postgres (Supabase/Neon)
         sync: false
       - key: OPENAI_API_KEY
         sync: false
@@ -25,57 +34,18 @@ envVarGroups:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
-      - key: TELEGRAM_WEBHOOK_SECRET     # bí mật xác thực webhook (scripts/set_webhook.py sinh ra)
+      - key: TELEGRAM_WEBHOOK_SECRET      # bí mật xác thực webhook (scripts/set_webhook.py sinh ra)
         sync: false
-      - key: DASHBOARD_BASE_URL           # URL web sau khi deploy (vd https://stock-dashboard.onrender.com)
+      - key: DASHBOARD_BASE_URL           # URL web sau khi deploy (vd https://xxx.onrender.com)
         sync: false
 
 services:
-  # Dashboard web (gói free — ngủ khi không dùng, tự thức khi truy cập)
+  # Dashboard + bot webhook (gói free — ngủ khi không dùng, tự thức khi có request)
   - type: web
     name: stock-dashboard
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
-    envVars:
-      - fromGroup: stock-secrets
-
-  # 09:00 VN — quét tin + AI phân tích ảnh hưởng
-  - type: cron
-    name: news-morning
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    schedule: "0 2 * * 1-5"
-    dockerCommand: python -m app.news_scan
-    envVars:
-      - fromGroup: stock-secrets
-
-  # 14:00 VN — quét tin phiên chiều
-  - type: cron
-    name: news-afternoon
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    schedule: "0 7 * * 1-5"
-    dockerCommand: python -m app.news_scan
-    envVars:
-      - fromGroup: stock-secrets
-
-  # 17:00 VN — nạp dữ liệu + chấm điểm + AI chọn cổ phiếu nên đầu tư
-  - type: cron
-    name: daily-pipeline
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    schedule: "0 10 * * 1-5"
-    dockerCommand: python -m app.pipeline
-    envVars:
-      - fromGroup: stock-secrets
-
-  # 17:30 VN — quét cổ phiếu penny tiềm năng
-  - type: cron
-    name: penny-scan
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    schedule: "30 10 * * 1-5"
-    dockerCommand: python -m app.penny
+    healthCheckPath: /api/health
     envVars:
       - fromGroup: stock-secrets
