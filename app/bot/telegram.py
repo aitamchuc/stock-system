@@ -337,17 +337,40 @@ def _post(method: str, payload: dict) -> dict | None:
         return None
 
 
+TG_LIMIT = 4000        # Telegram tối đa 4096 ký tự/tin — chừa biên an toàn
+
+
+def split_message(text: str) -> list[str]:
+    """Cắt tin dài theo DÒNG để không phá vỡ thẻ HTML giữa chừng."""
+    if len(text) <= TG_LIMIT:
+        return [text]
+    parts, cur = [], ""
+    for line in text.split("\n"):
+        if len(cur) + len(line) + 1 > TG_LIMIT:
+            parts.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        parts.append(cur)
+    return parts
+
+
 def send_message(text: str, chat_id: str | None = None) -> bool:
+    """Gửi tin (tự tách nếu quá dài). Không có token → in ra console (dev mode)."""
     if not settings.telegram_token or not (chat_id or settings.telegram_chat_id):
         print("\n[TELEGRAM - DEV MODE]\n" + text + "\n")
         return True
-    ok = _post("sendMessage", {
-        "chat_id": chat_id or settings.telegram_chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False,
-    })
-    return ok is not None
+    ok = True
+    for part in split_message(text):
+        r = _post("sendMessage", {
+            "chat_id": chat_id or settings.telegram_chat_id,
+            "text": part,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False,
+        })
+        ok = ok and r is not None
+    return ok
 
 
 def send(a: dict) -> bool:

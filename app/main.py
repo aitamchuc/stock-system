@@ -28,6 +28,11 @@ from app.models import (
 from app.schemas import DISCLAIMER, RankingItem, RankingResponse
 
 app = FastAPI(title="VN Stock Ranking & Alert API", version="1.0.0")
+
+# Bot Telegram chạy 24/7 qua webhook (không cần tiến trình long-polling → dùng được gói free)
+from app.bot.webhook import router as telegram_router  # noqa: E402
+
+app.include_router(telegram_router)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.cache = None  # tránh lỗi LRUCache của Jinja trên Python 3.14
 

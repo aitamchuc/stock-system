@@ -25,6 +25,8 @@ envVarGroups:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET     # bí mật xác thực webhook (scripts/set_webhook.py sinh ra)
+        sync: false
       - key: DASHBOARD_BASE_URL           # URL web sau khi deploy (vd https://stock-dashboard.onrender.com)
         sync: false
 

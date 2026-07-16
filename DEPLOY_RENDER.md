@@ -62,6 +62,37 @@ Từ giờ lịch tự chạy (giờ VN, T2–T6): 09:00 & 14:00 tin tức · 17
 
 ---
 
+## Bước 5 — Bật bot Telegram 24/7 (miễn phí, dùng webhook)
+
+Bot trả lời lệnh `/FPT` (phân tích sâu), `/rank`, `/detail`… **không cần máy bạn bật**.
+
+> **Vì sao webhook, không phải worker:** Render gói free **không có Background Worker**
+> (chỉ gói trả phí ~$7/th). Web service free thì ngủ khi rảnh nhưng **tự thức khi có HTTP
+> request** → Telegram đẩy tin vào là service thức dậy xử lý. Miễn phí.
+
+1. Lấy URL web service của bạn trên Render (vd `https://stock-dashboard.onrender.com`).
+2. Trên máy, chạy:
+   ```powershell
+   python scripts/set_webhook.py --url https://stock-dashboard.onrender.com
+   ```
+   → in ra `TELEGRAM_WEBHOOK_SECRET=...` (sinh tự động).
+3. Vào Render → env group **stock-secrets** → thêm biến **`TELEGRAM_WEBHOOK_SECRET`** đúng giá trị đó → **Save** (service tự deploy lại).
+4. Nhắn `/FPT` cho bot → nhận báo cáo phân tích.
+
+**Kiểm tra / gỡ:**
+```powershell
+python scripts/set_webhook.py --status     # xem URL + lỗi gần nhất
+python scripts/set_webhook.py --delete     # gỡ, quay lại long-polling trên máy
+```
+
+⚠️ **Lưu ý:**
+- **Không đặt `TELEGRAM_WEBHOOK_SECRET` trên Render** → endpoint từ chối mọi tin (403/503).
+  Đây là chủ ý: endpoint công khai trên internet, không có bí mật thì ai cũng điều khiển
+  được bot của bạn (tốn tiền LLM, spam).
+- **Lần nhắn đầu sau khi service ngủ** sẽ chậm ~30–60s (cold start), các lần sau nhanh.
+- Webhook và `python -m app.bot.listener` (long-polling) **không chạy song song được** —
+  bật webhook thì Telegram ngừng trả tin cho long-polling.
+
 ## 💰 Chi phí (minh bạch)
 
 - **Neon**: gói free vĩnh viễn (0đ), đủ cho dữ liệu này.

@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Telegram
     telegram_token: str = ""
     telegram_chat_id: str = ""
+    # Bí mật xác thực webhook — Telegram gửi kèm header X-Telegram-Bot-Api-Secret-Token.
+    # BẮT BUỘC khi bật webhook: endpoint công khai trên internet, không có nó thì bất kỳ ai
+    # cũng POST giả lệnh vào bot được (tốn tiền LLM, spam tin nhắn).
+    telegram_webhook_secret: str = ""
 
     # LLM — hỗ trợ OpenAI (ChatGPT) hoặc Anthropic (Claude).
     # Tự chọn: có openai_api_key → OpenAI; else có anthropic_api_key → Claude; else quy tắc.

@@ -42,7 +42,8 @@ def _api(method: str, **params):
     return r.json()
 
 
-TG_LIMIT = 4000        # Telegram tối đa 4096 ký tự/tin — chừa biên an toàn
+TG_LIMIT = telegram.TG_LIMIT       # dùng chung với telegram.py (một nguồn sự thật)
+_split = telegram.split_message
 
 
 def _send(chat_id, text: str) -> None:
@@ -51,22 +52,6 @@ def _send(chat_id, text: str) -> None:
         httpx.post(_API.format(token=settings.telegram_token, method="sendMessage"),
                    json={"chat_id": chat_id, "text": part, "parse_mode": "HTML",
                          "disable_web_page_preview": True}, timeout=20)
-
-
-def _split(text: str) -> list[str]:
-    """Cắt theo dòng để không phá vỡ thẻ HTML giữa chừng."""
-    if len(text) <= TG_LIMIT:
-        return [text]
-    parts, cur = [], ""
-    for line in text.split("\n"):
-        if len(cur) + len(line) + 1 > TG_LIMIT:
-            parts.append(cur)
-            cur = line
-        else:
-            cur = f"{cur}\n{line}" if cur else line
-    if cur:
-        parts.append(cur)
-    return parts
 
 
 # ---------------- Command handlers ----------------
