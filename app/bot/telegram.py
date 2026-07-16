@@ -202,6 +202,92 @@ def format_nw_signals(buys: list[dict], sells: list[dict], ts: str) -> str:
             + _DISCLAIMER)
 
 
+def format_deep_analysis(a: dict, thesis: str | None = None) -> str:
+    """Báo cáo phân tích SÂU 1 mã (lệnh /<MÃ>) — cơ bản + kỹ thuật + dòng tiền + vùng giá."""
+    if a.get("error") == "not_enough_data":
+        return (f"❌ <b>{_esc(a['symbol'])}</b>: không đủ dữ liệu để phân tích "
+                f"(chỉ có {a.get('bars', 0)} nến, cần ≥120).\n"
+                f"Có thể mã này mới niêm yết, thanh khoản quá thấp, hoặc mã không tồn tại.")
+
+    def money(v):
+        return f"{v:,.0f}" if v is not None else "—"
+
+    def ty(v):
+        return f"{v/1e9:,.0f} tỷ" if v else "—"
+
+    s, lv, fin = a["score"], a["levels"], a.get("fin")
+    p = a["price"]
+    head = (f"📊 <b>{_esc(a['symbol'])}</b>"
+            + (f" — {_esc(a['company'])}" if a.get("company") else "")
+            + f"\n<b>{money(p)}</b> · phiên {_esc(a['ts'])}"
+            + f" · thanh khoản {ty(a.get('liquidity'))}\n")
+
+    # Điểm số
+    sc = (f"\n🎯 <b>Điểm tổng hợp: {s['final_score']:.0f}/100</b> — "
+          f"{_esc(SIGNAL_LABELS.get(s['signal'], s['signal']))}\n"
+          f"<code>Cơ bản {s['s_fundamental']:.0f} · Tăng trưởng {s['s_growth']:.0f} · "
+          f"Sức khỏe {s['s_health']:.0f}\nĐịnh giá {s['s_valuation']:.0f} · "
+          f"Kỹ thuật {s['s_technical']:.0f} · Dòng tiền {s['s_moneyflow']:.0f} · "
+          f"An toàn {s['s_risk']:.0f}</code>\n<i>(thang 0-100, cao = tốt)</i>\n")
+
+    # Báo cáo tài chính
+    fi = ""
+    if fin:
+        fi = (f"\n💼 <b>Tài chính</b> (kỳ {_esc(fin['period'])})\n"
+              f"Doanh thu {ty(fin['revenue'])} · LNST {ty(fin['net_income'])}\n"
+              f"ROE {(fin['roe'] or 0)*100:.1f}% · Biên ròng {(fin['net_margin'] or 0)*100:.1f}%"
+              f" · Nợ vay {ty(fin['total_debt'])}\n"
+              f"Dòng tiền KD {ty(fin['cfo'])} · FCF {ty(fin['fcf'])}\n"
+              f"P/E {fin['pe'] or '—'} · P/B {fin['pb'] or '—'}"
+              + (f" · EPS(TTM) {money(fin['eps_ttm'])}" if fin.get("eps_ttm") else ""))
+    red = a["fa"].get("red_flags") or []
+    if red:
+        fi += "\n⚠️ <b>Cảnh báo BCTC:</b> " + "; ".join(_esc(x) for x in red[:3])
+
+    # Kỹ thuật
+    ta, nw, sf = a["ta"], a.get("nw") or {}, a.get("sfi") or {}
+    tech = (f"\n\n📈 <b>Kỹ thuật</b>\n"
+            f"Hỗ trợ {money(ta.get('support'))} · Kháng cự {money(ta.get('resistance'))}\n")
+    if ta.get("reasons"):
+        tech += "\n".join(f"• {_esc(r)}" for r in ta["reasons"][:3]) + "\n"
+    if nw.get("position") is not None:
+        tech += f"Vị trí trong dải NW: {nw['position']:.0%}"
+        if nw.get("signal"):
+            tech += f" · tín hiệu {nw['signal']} hôm nay"
+        tech += "\n"
+    if sf.get("oracle_score") is not None:
+        tech += f"Đồng thuận kỹ thuật: {sf['oracle_score']}/6"
+        if sf.get("overheated"):
+            tech += " → 🔥 <b>QUÁ NÓNG</b> (lịch sử: lợi nhuận kỳ vọng thấp nhất)"
+        tech += "\n"
+
+    # Dòng tiền
+    flow = ""
+    if a["mf"].get("reasons"):
+        flow = "\n💧 <b>Dòng tiền</b>\n" + "\n".join(f"• {_esc(r)}" for r in a["mf"]["reasons"][:3])
+
+    # Vùng giá
+    exp = lv.get("expected_return")
+    rr = lv.get("risk_reward")
+    zone = (f"\n\n💰 <b>VÙNG GIÁ THAM CHIẾU</b>\n"
+            f"🟢 Mua tích lũy: <b>{money(lv['buy_low'])} – {money(lv['buy_high'])}</b>\n"
+            f"🎯 Chốt lời: <b>{money(lv['target_price'])}</b>"
+            + (f" ({exp*100:+.0f}%)" if exp is not None else "") + "\n"
+            f"🛑 Cắt lỗ: <b>{money(lv['stop_loss'])}</b> "
+            f"<i>({_esc(lv.get('stop_source', ''))})</i>"
+            + (f"\n⚖️ Lời/Lỗ ≈ {rr:.1f} · độ tin cậy {_esc(lv.get('conviction', '—'))}"
+               if rr is not None else ""))
+
+    th = f"\n\n🧠 <b>Nhận định AI</b>\n{_md_bold_to_html(thesis)}" if thesis else ""
+
+    warn = ("\n\n—\n🚨 <b>KHÔNG ĐẢM BẢO LỢI NHUẬN.</b> <i>Backtest toàn thị trường (1.480 mã, "
+            "45.000+ quan sát độc lập): KHÔNG chỉ báo nào — kỹ thuật lẫn cơ bản — dự báo được "
+            "lợi nhuận; một số tín hiệu 'mua' còn cho lợi nhuận ÂM có ý nghĩa thống kê. Vùng giá "
+            "trên dựa vào hỗ trợ/kháng cự và định giá, KHÔNG phải dự báo. Luôn đặt cắt lỗ và "
+            "chỉ dùng vốn bạn chấp nhận rủi ro.</i>\n")
+    return head + sc + fi + tech + flow + zone + th + warn + _DISCLAIMER
+
+
 def format_daily_picks(picks: list[dict], ts: str) -> str:
     """Danh sách cổ phiếu NÊN ĐẦU TƯ do AI chọn lọc."""
     head = f"✅ <b>CỔ PHIẾU NÊN ĐẦU TƯ — {_esc(ts)}</b> (AI chọn lọc)\n"

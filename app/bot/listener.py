@@ -22,6 +22,7 @@ try:
 except Exception:
     pass
 
+from app.bot import telegram
 from app.config import settings
 from app.db import session_scope
 from app.engines.scoring import SIGNAL_LABELS
@@ -41,10 +42,31 @@ def _api(method: str, **params):
     return r.json()
 
 
+TG_LIMIT = 4000        # Telegram tối đa 4096 ký tự/tin — chừa biên an toàn
+
+
 def _send(chat_id, text: str) -> None:
-    httpx.post(_API.format(token=settings.telegram_token, method="sendMessage"),
-               json={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
-                     "disable_web_page_preview": True}, timeout=15)
+    """Gửi tin, tự tách nếu vượt giới hạn Telegram (báo cáo phân tích sâu có thể rất dài)."""
+    for part in _split(text):
+        httpx.post(_API.format(token=settings.telegram_token, method="sendMessage"),
+                   json={"chat_id": chat_id, "text": part, "parse_mode": "HTML",
+                         "disable_web_page_preview": True}, timeout=20)
+
+
+def _split(text: str) -> list[str]:
+    """Cắt theo dòng để không phá vỡ thẻ HTML giữa chừng."""
+    if len(text) <= TG_LIMIT:
+        return [text]
+    parts, cur = [], ""
+    for line in text.split("\n"):
+        if len(cur) + len(line) + 1 > TG_LIMIT:
+            parts.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        parts.append(cur)
+    return parts
 
 
 # ---------------- Command handlers ----------------
@@ -103,19 +125,55 @@ def cmd_watch() -> str:
 
 
 _HELP = (
-    "🤖 <b>Bot cảnh báo cổ phiếu VN</b>\n"
+    "🤖 <b>Bot phân tích cổ phiếu VN</b>\n\n"
+    "<b>/FPT</b> — 📊 <b>phân tích SÂU</b> mã bất kỳ: BCTC, định giá, kỹ thuật, "
+    "dòng tiền, vùng giá mua/bán/cắt lỗ + nhận định AI\n"
+    "   <i>(gõ thẳng tên mã cũng được, vd: <code>HPG</code>)</i>\n"
     "/rank [n] — top n mã điểm cao nhất\n"
-    "/detail &lt;MÃ&gt; — chi tiết 1 mã (vd /detail FPT)\n"
+    "/detail &lt;MÃ&gt; — tóm tắt nhanh 1 mã\n"
     "/watch — danh mục theo dõi\n"
     "/help — trợ giúp\n—\n" + _DISCLAIMER
 )
+
+_KNOWN = {"/start", "/help", "/rank", "/detail", "/watch"}
+
+
+def cmd_analyze(symbol: str) -> str:
+    """Phân tích sâu 1 mã — tự nạp dữ liệu nếu DB chưa có (mất ~10-30s)."""
+    from app.engines import deep_analysis
+
+    symbol = symbol.upper().strip()
+    if not (2 <= len(symbol) <= 5) or not symbol.isalnum():
+        return f"Mã <b>{_esc(symbol)}</b> không hợp lệ (mã CK gồm 2-5 ký tự chữ/số)."
+    a = deep_analysis.analyze(symbol)
+    if a is None:
+        return f"Không phân tích được <b>{_esc(symbol)}</b>."
+    thesis = deep_analysis.llm_thesis(a) if not a.get("error") else None
+    return telegram.format_deep_analysis(a, thesis)
+
+
+def _is_analyze_request(text: str) -> bool:
+    """True nếu tin nhắn là yêu cầu phân tích sâu 1 mã (/<MÃ> hoặc gõ thẳng MÃ).
+
+    Yêu cầu MỘT TỪ DUY NHẤT: nếu chỉ xét từ đầu, câu tiếng Việt như "mua gi hom nay" sẽ bị
+    hiểu nhầm thành mã 'MUA' và chạy phân tích sai.
+    """
+    parts = text.strip().split()
+    if len(parts) != 1:
+        return False
+    raw = parts[0]
+    if raw.lower().split("@")[0] in _KNOWN:
+        return False
+    token = raw[1:] if raw.startswith("/") else raw
+    return token.isalnum() and 2 <= len(token) <= 5
 
 
 def handle(text: str) -> str:
     parts = text.strip().split()
     if not parts:
         return _HELP
-    cmd = parts[0].lower().split("@")[0]
+    raw = parts[0]
+    cmd = raw.lower().split("@")[0]
     if cmd in ("/start", "/help"):
         return _HELP
     if cmd == "/rank":
@@ -125,7 +183,13 @@ def handle(text: str) -> str:
         return cmd_detail(parts[1])
     if cmd == "/watch":
         return cmd_watch()
-    return "Lệnh không hợp lệ. Gõ /help để xem hướng dẫn."
+
+    # /<MÃ> hoặc gõ thẳng MÃ → phân tích sâu (vd /FPT, FPT, hpg)
+    # Dùng chung _is_analyze_request để logic định tuyến không lệch với lúc gửi tin "đang phân tích"
+    if _is_analyze_request(text):
+        return cmd_analyze(raw[1:] if raw.startswith("/") else raw)
+    return ("Không hiểu yêu cầu. Gõ <b>mã cổ phiếu</b> để phân tích sâu (vd <code>FPT</code>), "
+            "hoặc /help để xem hướng dẫn.")
 
 
 def run() -> None:
@@ -148,6 +212,9 @@ def run() -> None:
                 chat = (msg.get("chat") or {}).get("id")
                 if text and chat:
                     print(f"  ↩ {text}")
+                    # Phân tích sâu mất 10-30s (nạp dữ liệu + LLM) → báo ngay để user không tưởng treo
+                    if _is_analyze_request(text):
+                        _send(chat, "⏳ Đang phân tích... (nạp dữ liệu + BCTC + AI, ~10-30 giây)")
                     _send(chat, handle(text))
         except KeyboardInterrupt:
             print("\nĐã dừng.")
