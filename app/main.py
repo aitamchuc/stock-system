@@ -68,7 +68,25 @@ def _latest_ts(db: Session):
 @app.get("/api/health")
 def health():
     # Chỉ báo cấu hình (boolean, KHÔNG lộ giá trị bí mật) — để chẩn đoán deploy từ xa.
+    from sqlalchemy import text as _text
+
     from app.config import settings as _s
+    from app.db import engine as _engine
+
+    # Thử KẾT NỐI DB thật (1 lần, không flood) → phân biệt "URL đúng" vs "sai mật khẩu / bị khóa"
+    db_ok, db_err = False, None
+    try:
+        with _engine.connect() as _c:
+            _c.execute(_text("select 1"))
+        db_ok = True
+    except Exception as exc:
+        m = str(exc).splitlines()[0]
+        if "CIRCUITBREAKER" in m or "too many auth" in m:
+            db_err = "circuit_breaker"          # bị khóa tạm do auth sai trước đó
+        elif "password authentication failed" in m:
+            db_err = "wrong_credentials"         # DATABASE_URL sai user/mật khẩu
+        else:
+            db_err = m[:80]
     return {
         "status": "ok",
         "config": {
@@ -76,7 +94,8 @@ def health():
             "telegram_configured": bool(_s.telegram_token and _s.telegram_chat_id),
             "openai_set": bool(_s.openai_api_key),
             "model": _s.openai_model,
-            "db": "postgres" if "postgres" in _s.database_url else "sqlite/other",
+            "db_url_kind": "postgres" if "postgres" in _s.database_url else "sqlite/other",
+            "db_connect": "ok" if db_ok else db_err,
         },
         "disclaimer": DISCLAIMER,
     }
