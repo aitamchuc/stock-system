@@ -39,7 +39,25 @@ templates.env.cache = None  # tránh lỗi LRUCache của Jinja trên Python 3.1
 
 @app.on_event("startup")
 def _startup() -> None:
-    init_db()
+    # KHÔNG để lỗi DB làm sập cả web service (nếu không, sai DATABASE_URL → crash-loop →
+    # bot webhook + dashboard + health đều chết, không chẩn đoán được). Chạy tiếp, thử lại sau.
+    try:
+        init_db()
+        print("[startup] init_db OK")
+    except Exception as exc:
+        print(f"[startup] ⚠️ init_db lỗi (service vẫn chạy, sẽ thử lại mỗi request): {str(exc)[:120]}")
+
+
+@app.middleware("http")
+async def _ensure_db(request: Request, call_next):
+    """Nếu init_db lúc khởi động thất bại (vd DB tạm lỗi), tạo bảng ở request đầu chạm DB."""
+    if not getattr(app.state, "db_ready", False):
+        try:
+            init_db()
+            app.state.db_ready = True
+        except Exception:
+            pass
+    return await call_next(request)
 
 
 def _latest_ts(db: Session):
