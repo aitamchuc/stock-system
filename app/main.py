@@ -49,7 +49,19 @@ def _latest_ts(db: Session):
 # ---------------- REST API ----------------
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "disclaimer": DISCLAIMER}
+    # Chỉ báo cấu hình (boolean, KHÔNG lộ giá trị bí mật) — để chẩn đoán deploy từ xa.
+    from app.config import settings as _s
+    return {
+        "status": "ok",
+        "config": {
+            "webhook_secret_set": bool(_s.telegram_webhook_secret),
+            "telegram_configured": bool(_s.telegram_token and _s.telegram_chat_id),
+            "openai_set": bool(_s.openai_api_key),
+            "model": _s.openai_model,
+            "db": "postgres" if "postgres" in _s.database_url else "sqlite/other",
+        },
+        "disclaimer": DISCLAIMER,
+    }
 
 
 @app.get("/api/live")
